@@ -1,0 +1,46 @@
+# Core
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+
+# Database
+asyncpg==0.29.0
+alembic==1.13.1
+sqlalchemy==2.0.25
+
+# Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+
+# HTTP Clients
+httpx==0.26.0
+aiohttp==3.9.1
+
+# AI & Analysis
+openai==1.10.0
+tiktoken==0.5.2
+langchain==0.1.4
+
+# Utilities
+loguru==0.7.2
+tenacity==8.2.3
+redis==5.0.1
+celery==5.3.6
+
+# Web Scraping
+beautifulsoup4==4.12.3
+playwright==1.41.1
+scrapy==2.11.0
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+
+# Development
+black==23.12.1
+flake8==7.0.0
+mypy==1.8.0
