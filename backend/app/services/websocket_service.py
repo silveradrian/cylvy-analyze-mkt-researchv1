@@ -162,3 +162,4 @@ class WebSocketService:
             }
             for channel, connections in self._connections.items()
         }
+

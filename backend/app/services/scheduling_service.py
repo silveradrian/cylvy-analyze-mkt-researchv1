@@ -622,3 +622,4 @@ class SchedulingService:
             data['notification_emails'] = json.loads(data['notification_emails'])
         
         return PipelineSchedule(**data)
+

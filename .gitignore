@@ -80,3 +80,4 @@ temp/
 !/backend/storage/.gitkeep
 /frontend/public/uploads/*
 !/frontend/public/uploads/.gitkeep
+

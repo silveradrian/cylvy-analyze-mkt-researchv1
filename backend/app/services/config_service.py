@@ -213,3 +213,4 @@ class ConfigService:
             'competitor_domains': [],
             'custom_dimensions': {}
         })
+

@@ -14,7 +14,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.core.database import db_pool
-from app.services.serp.serp_collector import SerpCollector
+from app.services.serp.serp_collector import SERPCollector
 from app.services.enrichment.company_enricher import CompanyEnricher
 from app.services.enrichment.video_enricher import VideoEnricher
 from app.services.scraping.web_scraper import WebScraper
@@ -106,7 +106,7 @@ class PipelineService:
         self.db = db
         
         # Initialize service dependencies
-        self.serp_collector = SerpCollector(settings, db)
+        self.serp_collector = SERPCollector(settings, db)
         self.company_enricher = CompanyEnricher(settings, db)
         self.video_enricher = VideoEnricher(settings, db)
         self.web_scraper = WebScraper(settings, db)
@@ -644,3 +644,4 @@ class PipelineService:
                 results.append(PipelineResult(**data))
             
             return results
+

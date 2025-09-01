@@ -430,3 +430,4 @@ CREATE TRIGGER update_historical_page_lifecycle_updated_at
 CREATE TRIGGER update_pipeline_schedules_updated_at 
   BEFORE UPDATE ON pipeline_schedules
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+

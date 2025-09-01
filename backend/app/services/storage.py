@@ -137,3 +137,4 @@ class StorageService:
             return f"{settings.API_URL}{filename}"
         
         return f"{settings.API_URL}/storage/logos/{filename}"
+

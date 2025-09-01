@@ -515,3 +515,4 @@ class HistoricalDataService:
         """Schedule automatic monthly snapshot creation"""
         logger.info("Monthly snapshot automation would integrate with SchedulingService")
         # This would be called by the SchedulingService on a monthly basis
+

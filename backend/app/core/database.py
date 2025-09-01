@@ -81,3 +81,4 @@ db_pool = DatabasePool()
 async def get_db() -> DatabasePool:
     """Dependency to get database pool"""
     return db_pool
+

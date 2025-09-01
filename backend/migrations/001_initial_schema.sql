@@ -337,3 +337,4 @@ CREATE TRIGGER update_prompt_configurations_updated_at BEFORE UPDATE ON prompt_c
 -- Insert default admin user (password: admin123)
 INSERT INTO users (email, hashed_password, full_name, role)
 VALUES ('admin@cylvy.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyNiGHGqQRLYFK', 'Admin User', 'superadmin');
+

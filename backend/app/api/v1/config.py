@@ -179,3 +179,4 @@ async def get_setup_status():
             "jtbd_phases": len(analysis_config.jtbd_phases) > 0
         }
     }
+

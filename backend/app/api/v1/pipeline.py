@@ -459,3 +459,4 @@ async def get_trending_content(
     """Get trending content based on DSI improvements"""
     trending = await historical_svc.get_trending_content(days)
     return {"trending_content": [dict(content) for content in trending]}
+
