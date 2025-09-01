@@ -9,9 +9,9 @@ from datetime import datetime, date
 import json
 from loguru import logger
 
-from app.config import get_settings, Settings
+from app.core.config import settings as get_settings, Settings
 from app.models.serp import SERPType
-from app.database import get_db
+from app.core.database import get_db
 
 
 class SERPCollector:

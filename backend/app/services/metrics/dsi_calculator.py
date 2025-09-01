@@ -15,8 +15,8 @@ from app.models.dsi import (
     YouTubeChannelDSIMetrics, YouTubeVideoDSIMetrics, MarketTotals,
     OrganicDSIRequest, NewsDSIRequest, YouTubeDSIRequest
 )
-from app.database import AsyncConnection
-from app.config import Settings
+from app.core.database import AsyncConnection
+from app.core.config import Settings
 
 
 
@@ -24,9 +24,9 @@ from app.config import Settings
 class DSICalculator:
     """Service for calculating Digital Share of Intelligence metrics"""
     
-    def __init__(self, db: AsyncConnection, settings: Settings):
-        self.db = db
+    def __init__(self, settings, db):
         self.settings = settings
+        self.db = db
         
     async def calculate(self, request: DSICalculationRequest) -> DSICalculationResult:
         """Calculate DSI based on request parameters"""

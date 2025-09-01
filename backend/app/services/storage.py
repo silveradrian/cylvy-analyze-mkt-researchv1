@@ -12,6 +12,7 @@ import magic
 from loguru import logger
 
 from app.core.config import settings
+from app.core.storage import STORAGE_PATH, LOGOS_PATH, EXPORTS_PATH
 
 
 class StorageService:
@@ -28,13 +29,9 @@ class StorageService:
     LOGO_DIMENSIONS = (500, 500)  # Max dimensions for raster images
     
     def __init__(self):
-        self.storage_path = Path(settings.STORAGE_PATH)
-        self.logos_path = self.storage_path / "logos"
-        self.exports_path = self.storage_path / "exports"
-        
-        # Ensure directories exist
-        self.logos_path.mkdir(parents=True, exist_ok=True)
-        self.exports_path.mkdir(parents=True, exist_ok=True)
+        self.storage_path = STORAGE_PATH
+        self.logos_path = LOGOS_PATH
+        self.exports_path = EXPORTS_PATH
     
     async def save_logo(self, file: UploadFile) -> str:
         """

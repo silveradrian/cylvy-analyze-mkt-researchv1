@@ -16,7 +16,7 @@ from app.models.prompt_config import (
     PromptLibrary,
     PromptVariable
 )
-from app.database import DatabasePool
+from app.core.database import DatabasePool
 
 
 class PromptManager:

@@ -10,7 +10,7 @@ import asyncpg
 from loguru import logger
 import redis.asyncio as redis
 
-from app.config import Settings
+from app.core.config import Settings
 
 
 class PersistentQuotaManager:

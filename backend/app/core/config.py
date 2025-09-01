@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     COGNISM_API_KEY: Optional[str] = Field(None, env="COGNISM_API_KEY")
     YOUTUBE_API_KEY: Optional[str] = Field(None, env="YOUTUBE_API_KEY")
     
+    # Storage
+    STORAGE_PATH: str = Field("/app/storage", env="STORAGE_PATH")
+    
     # Feature Flags
     ENABLE_HISTORICAL_TRACKING: bool = Field(True, env="ENABLE_HISTORICAL_TRACKING")
     ENABLE_SCHEDULING: bool = Field(False, env="ENABLE_SCHEDULING")

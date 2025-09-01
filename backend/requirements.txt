@@ -35,6 +35,22 @@ beautifulsoup4==4.12.3
 playwright==1.41.1
 scrapy==2.11.0
 
+# File Processing
+python-magic==0.4.27
+Pillow==10.2.0
+
+# Async HTTP clients
+aiofiles==23.2.1
+
+# Scheduling & Background Tasks
+croniter==2.0.1
+cron-descriptor==1.4.0
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
 # Testing
 pytest==7.4.4
 pytest-asyncio==0.23.3

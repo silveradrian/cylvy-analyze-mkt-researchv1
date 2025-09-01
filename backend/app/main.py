@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.database import db_pool
 from app.api.v1 import api_router
 from app.core.exceptions import setup_exception_handlers
+from app.core.websocket import router as websocket_router
 
 
 @asynccontextmanager
@@ -18,7 +19,20 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     logger.info("Starting Cylvy Digital Landscape Analyzer...")
+    
+    # Initialize database pool
     await db_pool.initialize()
+    
+    # Check database health on startup
+    from app.core.database_check import DatabaseHealthChecker
+    checker = DatabaseHealthChecker()
+    health = await checker.check_connection()
+    
+    if health["status"] != "healthy":
+        logger.error("Database connection failed on startup!")
+        raise Exception("Database not available")
+    
+    logger.info("Database connection verified")
     
     yield
     
@@ -54,6 +68,9 @@ setup_exception_handlers(app)
 
 # Include API router
 app.include_router(api_router, prefix="/api/v1")
+
+# Include WebSocket router
+app.include_router(websocket_router)
 
 # Health check endpoint
 @app.get("/health")

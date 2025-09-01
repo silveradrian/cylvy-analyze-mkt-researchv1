@@ -11,8 +11,8 @@ from loguru import logger
 import redis.asyncio as redis
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.config import settings, Settings
-from app.database import DatabasePool
+from app.core.config import settings, Settings
+from app.core.database import DatabasePool
 
 
 class WebScraper:

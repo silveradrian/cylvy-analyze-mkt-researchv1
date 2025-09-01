@@ -82,3 +82,22 @@ async def get_db() -> DatabasePool:
     """Dependency to get database pool"""
     return db_pool
 
+
+class AsyncConnection:
+    """Async database connection wrapper for compatibility"""
+    
+    def __init__(self, connection):
+        self._connection = connection
+    
+    async def fetch(self, query: str, *args):
+        return await self._connection.fetch(query, *args)
+    
+    async def fetchrow(self, query: str, *args):
+        return await self._connection.fetchrow(query, *args)
+    
+    async def fetchval(self, query: str, *args):
+        return await self._connection.fetchval(query, *args)
+    
+    async def execute(self, query: str, *args):
+        return await self._connection.execute(query, *args)
+

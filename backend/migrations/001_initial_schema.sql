@@ -334,7 +334,6 @@ CREATE TRIGGER update_video_content_updated_at BEFORE UPDATE ON video_content
 CREATE TRIGGER update_prompt_configurations_updated_at BEFORE UPDATE ON prompt_configurations
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Insert default admin user (password: admin123)
-INSERT INTO users (email, hashed_password, full_name, role)
-VALUES ('admin@cylvy.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyNiGHGqQRLYFK', 'Admin User', 'superadmin');
+-- Default admin user will be created by initialization script
+-- This allows for customizable admin credentials per deployment
 

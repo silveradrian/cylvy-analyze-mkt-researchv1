@@ -19,8 +19,8 @@ import httpx
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.config import Settings
-from app.database import DatabasePool
+from app.core.config import Settings
+from app.core.database import DatabasePool
 from app.models.content_analysis import (
     ContentAnalysisRequest,
     BatchAnalysisRequest,
@@ -35,9 +35,9 @@ from app.models.content_analysis import (
     Persona,
     JTBDPhase
 )
-from app.services.web_scraper import WebScraper
-from app.services.company_enricher import CompanyEnricher
-from app.services.prompt_manager import PromptManager
+from app.services.scraping.web_scraper import WebScraper
+from app.services.enrichment.company_enricher import CompanyEnricher
+from app.services.analysis.prompt_manager import PromptManager
 
 
 class ContentAnalyzer:

@@ -8,8 +8,8 @@ import asyncio
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.config import Settings
-from app.database import DatabasePool
+from app.core.config import Settings
+from app.core.database import DatabasePool
 from app.models.company import (
     CompanyProfile, CompanySearchResult, CompanyEnrichmentResult,
     BatchEnrichmentResult
