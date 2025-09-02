@@ -42,13 +42,21 @@ class Settings(BaseSettings):
     DEFAULT_SCRAPER_CONCURRENT_LIMIT: int = Field(50, env="DEFAULT_SCRAPER_CONCURRENT_LIMIT")
     DEFAULT_ANALYZER_CONCURRENT_LIMIT: int = Field(30, env="DEFAULT_ANALYZER_CONCURRENT_LIMIT")
     
-    # External API Keys (Fallback values for development)
-    # In production, these are stored encrypted per tenant
+# External API Keys (Fallback values for development)
+    # In production, these are stored encrypted per deployment
     OPENAI_API_KEY: Optional[str] = Field(None, env="OPENAI_API_KEY")
     SCALE_SERP_API_KEY: Optional[str] = Field(None, env="SCALE_SERP_API_KEY")
     SCRAPINGBEE_API_KEY: Optional[str] = Field(None, env="SCRAPINGBEE_API_KEY")
     COGNISM_API_KEY: Optional[str] = Field(None, env="COGNISM_API_KEY")
     YOUTUBE_API_KEY: Optional[str] = Field(None, env="YOUTUBE_API_KEY")
+    
+    # Google Ads API Configuration
+    GOOGLE_ADS_DEVELOPER_TOKEN: Optional[str] = Field(None, env="GOOGLE_ADS_DEVELOPER_TOKEN")
+    GOOGLE_ADS_CLIENT_ID: Optional[str] = Field(None, env="GOOGLE_ADS_CLIENT_ID")
+    GOOGLE_ADS_CLIENT_SECRET: Optional[str] = Field(None, env="GOOGLE_ADS_CLIENT_SECRET")
+    GOOGLE_ADS_REFRESH_TOKEN: Optional[str] = Field(None, env="GOOGLE_ADS_REFRESH_TOKEN")
+    GOOGLE_ADS_LOGIN_CUSTOMER_ID: Optional[str] = Field(None, env="GOOGLE_ADS_LOGIN_CUSTOMER_ID")
+    GOOGLE_ADS_CUSTOMER_ID: Optional[str] = Field(None, env="GOOGLE_ADS_CUSTOMER_ID")
     
     # Storage
     STORAGE_PATH: str = Field("/app/storage", env="STORAGE_PATH")
