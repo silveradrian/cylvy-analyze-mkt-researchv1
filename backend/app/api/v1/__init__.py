@@ -10,6 +10,8 @@ from app.api.v1.keywords import router as keywords_router
 from app.api.v1.keyword_metrics import router as keyword_metrics_router
 from app.api.v1.analysis import router as analysis_router
 from app.api.v1.dashboard import router as dashboard_router
+from app.api.v1.generic_dimensions import router as generic_dimensions_router
+from app.api.v1.generic_analysis import router as generic_analysis_router
 
 
 # Create main API router
@@ -23,6 +25,8 @@ api_router.include_router(keyword_metrics_router, tags=["keyword-metrics"]) # Ro
 api_router.include_router(pipeline_router, tags=["pipeline"]) # Router already has prefix
 api_router.include_router(analysis_router, prefix="/analysis", tags=["analysis"])
 api_router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
+api_router.include_router(generic_dimensions_router, prefix="/generic-dimensions", tags=["generic-dimensions"])
+api_router.include_router(generic_analysis_router, prefix="/generic-analysis", tags=["generic-analysis"])
 
 
 # Health check endpoint at API level
@@ -38,6 +42,8 @@ async def api_health():
             "/keywords",
             "/pipeline",
             "/analysis",
-            "/dashboard"
+            "/dashboard",
+            "/generic-dimensions",
+            "/generic-analysis"
         ]
     }

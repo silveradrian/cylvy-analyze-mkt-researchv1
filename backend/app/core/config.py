@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     ENABLE_HISTORICAL_TRACKING: bool = Field(True, env="ENABLE_HISTORICAL_TRACKING")
     ENABLE_SCHEDULING: bool = Field(False, env="ENABLE_SCHEDULING")
     ENABLE_ADVANCED_ANALYTICS: bool = Field(True, env="ENABLE_ADVANCED_ANALYTICS")
+    GENERIC_DIMENSIONS_ENABLED: bool = Field(True, env="GENERIC_DIMENSIONS_ENABLED")
+    
+    # Generic Dimensions Configuration
+    OPENAI_MODEL_GENERIC_ANALYSIS: str = Field("gpt-4-1106-preview", env="OPENAI_MODEL_GENERIC_ANALYSIS")
+    EVIDENCE_ANALYSIS_TIMEOUT: int = Field(45, env="EVIDENCE_ANALYSIS_TIMEOUT")
+    MAX_DIMENSIONS_PER_ANALYSIS: int = Field(20, env="MAX_DIMENSIONS_PER_ANALYSIS")
+    DYNAMIC_PROMPT_MAX_LENGTH: int = Field(16000, env="DYNAMIC_PROMPT_MAX_LENGTH")
     
     # Logging
     LOG_LEVEL: str = Field("INFO", env="LOG_LEVEL")

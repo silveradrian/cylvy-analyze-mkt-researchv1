@@ -1,7 +1,7 @@
 """
 Analysis configuration API endpoints
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel

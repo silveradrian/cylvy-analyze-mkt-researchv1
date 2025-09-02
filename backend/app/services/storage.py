@@ -8,7 +8,7 @@ from typing import Optional
 import aiofiles
 from fastapi import UploadFile
 from PIL import Image
-import magic
+# import magic  # Temporarily disabled for Windows development
 from loguru import logger
 
 from app.core.config import settings
@@ -51,8 +51,21 @@ class StorageService:
         # Reset file pointer
         await file.seek(0)
         
-        # Validate file type
-        mime = magic.from_buffer(contents, mime=True)
+        # Validate file type (simplified for Windows development)
+        # mime = magic.from_buffer(contents, mime=True)
+        # Simple extension-based MIME type detection
+        filename_lower = file.filename.lower() if file.filename else ''
+        if filename_lower.endswith('.png'):
+            mime = 'image/png'
+        elif filename_lower.endswith('.jpg') or filename_lower.endswith('.jpeg'):
+            mime = 'image/jpeg'
+        elif filename_lower.endswith('.gif'):
+            mime = 'image/gif'
+        elif filename_lower.endswith('.webp'):
+            mime = 'image/webp'
+        else:
+            mime = 'application/octet-stream'
+        
         if mime not in self.ALLOWED_IMAGE_TYPES:
             raise ValueError(f"Invalid file type. Allowed types: {', '.join(self.ALLOWED_IMAGE_TYPES.keys())}")
         

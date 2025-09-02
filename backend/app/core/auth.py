@@ -2,7 +2,7 @@
 Authentication and authorization system
 """
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status

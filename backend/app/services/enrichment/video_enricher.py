@@ -16,8 +16,8 @@ from app.models.video import (
     YouTubeVideoStats, YouTubeChannelStats, VideoSnapshot,
     VideoMetrics, VideoEnrichmentResult
 )
-from app.database import AsyncConnection
-from app.config import Settings
+from app.core.database import get_db, AsyncConnection
+from app.core.config import settings, Settings
 from redis import Redis
 
 

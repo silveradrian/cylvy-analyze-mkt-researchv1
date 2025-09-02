@@ -1,7 +1,7 @@
 """
 Dashboard API endpoints for results and analytics
 """
-from typing import List, Optional
+from typing import List, Optional, Dict
 from fastapi import APIRouter, Depends, Query
 
 from app.core.auth import get_current_user

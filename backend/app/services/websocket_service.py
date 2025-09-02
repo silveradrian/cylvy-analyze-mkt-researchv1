@@ -3,7 +3,7 @@ WebSocket service for real-time updates
 """
 import asyncio
 import json
-from typing import Dict, Set, Any
+from typing import Dict, Set, Any, Optional, List
 from uuid import UUID
 from datetime import datetime
 
