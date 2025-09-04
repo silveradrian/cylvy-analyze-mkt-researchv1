@@ -47,6 +47,12 @@ export default function HomePage() {
               </button>
             </Link>
             
+            <Link href="/pipeline-schedules">
+              <button className="cylvy-btn-secondary text-lg">
+                🗓️ Pipeline Scheduling
+              </button>
+            </Link>
+            
             <Link href="/landscapes">
               <button className="cylvy-btn-secondary text-lg">
                 🌐 Digital Landscapes
