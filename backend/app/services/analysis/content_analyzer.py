@@ -46,7 +46,7 @@ class ContentAnalyzer:
     def __init__(self, settings: Settings, db: DatabasePool):
         self.settings = settings
         self.db = db
-        self.openai_api_key = settings.openai_api_key
+        self.openai_api_key = settings.OPENAI_API_KEY
         
         # Initialize dependencies
         self.web_scraper = WebScraper(settings=settings, db=db)
@@ -61,7 +61,7 @@ class ContentAnalyzer:
         }
         
         # Rate limiting
-        self._semaphore = asyncio.Semaphore(settings.content_analyzer_concurrent_limit or 5)
+        self._semaphore = asyncio.Semaphore(settings.DEFAULT_ANALYZER_CONCURRENT_LIMIT or 5)
     
     async def analyze_content(
         self,
@@ -153,10 +153,10 @@ class ContentAnalyzer:
                     prompt_config=prompt_config
                 )
                 
-                # Phase 2: AI-powered source identification (not pattern matching)
-                source_info = await self._identify_source_with_ai(
+                # Phase 2: Get source info from company enrichment data
+                source_info = await self._get_enriched_source_info(
                     url=request.url,
-                    content=content[:2000],  # First 2000 chars for source ID
+                    content=content[:2000],  # Keep for compatibility
                     client_id=request.client_id
                 )
                 
@@ -1009,268 +1009,81 @@ Analyze:
         # This is a fallback method that should not be used for production
         return Sentiment.NEUTRAL
     
-    async def _identify_source_with_ai(
+    async def _get_enriched_source_info(
         self,
         url: str,
         content: str,
         client_id: str = None,
         video_data: Dict[str, Any] = None
     ) -> Dict[str, Any]:
-        """Use AI and Cognism data to identify the source company and type"""
+        """Get source info from company enrichment data (source_type now determined during company enrichment)"""
         
         # Extract domain
         from urllib.parse import urlparse
         parsed = urlparse(url)
         domain = parsed.netloc.lower().replace('www.', '')
         
-        # Special handling for YouTube videos
-        if 'youtube.com' in domain or 'youtu.be' in domain:
-            # Check for temp video data if not provided
-            if not video_data and hasattr(self, '_temp_video_data'):
-                video_data = self._temp_video_data
-            
-            if video_data:
-                # Use AI to identify company from video data
-                video_company = await self.identify_video_company(video_data)
-                
-                # Try to get company data from identified domain
-                company_data = None
-                if video_company.get('inferred_domain'):
-                    company_data = await self._get_company_by_domain(
-                        video_company['inferred_domain']
-                    )
-                
-                # If no company data found, create a placeholder
-                if not company_data:
-                    company_data = {
-                        'company_name': video_company['company_name'],
-                        'domain': video_company.get('inferred_domain', f"youtube.com/c/{video_company['company_name'].replace(' ', '')}"),
-                        'industry': 'Media/Content',
-                        'company_type': video_company['channel_type'],
-                        'description': f"YouTube Channel: {video_company['company_name']}"
-                    }
-                
-                # Override domain for further processing
-                domain = company_data.get('domain', domain)
-            else:
-                # No video data available, use YouTube as company
-                company_data = {
-                    'company_name': 'YouTube',
-                    'domain': 'youtube.com',
-                    'industry': 'Technology',
-                    'company_type': 'platform'
-                }
-        else:
-            # Regular website - check if we have enriched company data from Cognism
-            company_data = await self._get_company_by_domain(domain)
-        
-        # Get client configuration to check owned/competitor status
-        config = None
-        if client_id:
-            config = await self._get_enhanced_client_config(client_id)
-        
-        is_client_domain = False
-        is_competitor = False
-        
-        if config:
-            # Check if it's the client's domain
-            primary_domain = getattr(config, 'primary_domain', '')
-            if primary_domain:
-                is_client_domain = domain == primary_domain.lower().replace('www.', '')
-            
-            # Check if it's a competitor domain
-            competitor_domains = getattr(config, 'competitor_domains', [])
-            is_competitor = any(domain == comp.lower().replace('www.', '') for comp in competitor_domains)
-        
-        # Build context for AI including Cognism data
-        cognism_context = ""
-        if company_data:
-            cognism_context = f"""
-
-Enriched Company Data from Cognism:
-- Company Name: {company_data.get('company_name', 'Unknown')}
-- Industry: {company_data.get('industry', 'Unknown')}
-- Sub-Industry: {company_data.get('sub_industry', 'Unknown')}
-- Company Type: {company_data.get('company_type', 'Unknown')}
-- Description: {company_data.get('description', 'No description available')}
-- Revenue: {company_data.get('revenue_amount', 'Unknown')}
-- Employees: {company_data.get('headcount', 'Unknown')}
-- Founded: {company_data.get('founded_year', 'Unknown')}
-"""
-        
-        # Build the source classification prompt with clear dimensions
-        source_dimensions = """
-## SOURCE CLASSIFICATION DIMENSIONS
-
-1. **OWNED** - Content published by the client company itself
-
-2. **COMPETITOR** - Content published by a named client competitor (must be in competitor list)
-
-3. **PREMIUM_PUBLISHER** - High-authority media and research publishers
-   - Examples: Forbes, Wall Street Journal, Financial Times, TechTarget, Gartner, Forrester, IDC, Harvard Business Review, MIT Sloan Review, McKinsey Insights
-
-4. **TECHNOLOGY** - Technology companies and tech-focused businesses
-   - Examples: Microsoft, Google, AWS, Salesforce, Oracle, SAP, IBM, tech startups
-   - NOT professional services firms even if they have tech practices
-
-5. **FINANCE** - Banks, Building Societies, and Financial Institutions
-   - Examples: JP Morgan, Bank of America, HSBC, Barclays, credit unions, investment banks
-   - NOT accounting/consulting firms (those go in OTHER)
-
-6. **PROFESSIONAL_BODY** - Regulatory bodies, chartered institutes, and professional associations
-   - Examples: Chartered Institute of Bankers, IEEE, ACCA, Bar Association, Medical Councils, CPA boards
-   - NOT professional services firms like PwC, Deloitte, EY, KPMG (those go in OTHER)
-
-7. **SOCIAL_MEDIA** - Social media and community platforms
-   - Examples: LinkedIn, Facebook, Twitter/X, Reddit, Wikipedia, YouTube (platform content), forums
-
-8. **EDUCATION** - Educational institutions and academic sources
-   - Examples: Universities (.edu), colleges, business schools, academic journals, research institutions
-
-9. **NON_PROFIT** - Charities and not-for-profit organizations
-   - Examples: Red Cross, United Way, foundations, NGOs, charitable organizations
-   - Typically .org domains with charitable/social missions
-
-10. **GOVERNMENT** - Government sources and public sector
-    - Examples: .gov domains, regulatory agencies, central banks, government departments, public sector bodies
-
-11. **OTHER** - Professional services firms and anything not fitting above categories
-    - Examples: PwC, Deloitte, EY, KPMG, Accenture, consulting firms, law firms, agencies
-    - Any company that doesn't clearly fit the specific categories above
-"""
-
-        # Build context for the AI
-        prompt = f"""Analyze this source and classify it into one of the defined categories.
-
-URL: {url}
-Domain: {domain}
-
-Is this the client's domain? {is_client_domain}
-Is this a competitor domain? {is_competitor}
-{cognism_context}
-
-{source_dimensions}
-
-CLASSIFICATION INSTRUCTIONS:
-- Use the Cognism company data (type, description) as the primary indicator
-- Industry data has been disabled due to inaccuracy
-- Only classify as OWNED if is_client_domain is True
-- Only classify as COMPETITOR if is_competitor is True  
-- For ambiguous cases, choose the most specific applicable category
-- Default to OTHER only if no other category clearly fits
-
-Analyze the source and provide your classification with reasoning."""
-        
-        function_schema = {
-            "name": "identify_source",
-            "description": "Identify content source and company",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "company_name": {
-                        "type": "string",
-                        "description": "Company name if identifiable"
-                    },
-                    "industry": {
-                        "type": "string",
-                        "description": "Industry or sector"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Brief company/source description"
-                    },
-                    "source_type": {
-                        "type": "string",
-                        "enum": ["OWNED", "COMPETITOR", "PREMIUM_PUBLISHER", "TECHNOLOGY", 
-                                "FINANCE", "PROFESSIONAL_BODY", "SOCIAL_MEDIA", "EDUCATION", 
-                                "NON_PROFIT", "GOVERNMENT", "OTHER"]
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Reasoning for the classification"
-                    }
-                },
-                "required": ["source_type", "reasoning"]
-            }
-        }
-        
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=self.headers,
-                    json={
-                        "model": "gpt-4o-mini",
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You are an expert at identifying companies and content sources from web content."
-                            },
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        "tools": [{
-                            "type": "function",
-                            "function": function_schema
-                        }],
-                        "tool_choice": {"type": "function", "function": {"name": "identify_source"}},
-                        "temperature": 0.3,
-                        "max_tokens": 500
-                    }
+            # Get company data from database (already enriched with source_type)
+            async with self.db.acquire() as conn:
+                company_data = await conn.fetchrow(
+                    """
+                    SELECT domain, company_name, industry, sub_industry, description, 
+                           source_type, headcount, revenue_amount
+                    FROM company_profiles 
+                    WHERE domain = $1
+                    """,
+                    domain
                 )
                 
-                if response.status_code != 200:
-                    raise Exception(f"OpenAI API error: {response.status_code}")
-                
-                result = response.json()
-                # Extract tool call arguments (new format)
-                tool_calls = result["choices"][0]["message"].get("tool_calls")
-                if tool_calls and len(tool_calls) > 0:
-                    source_info = json.loads(tool_calls[0]["function"]["arguments"])
-                else:
-                    # Fallback to old function_call format
-                    function_call = result["choices"][0]["message"].get("function_call")
-                    if function_call:
-                        source_info = json.loads(function_call["arguments"])
-                    else:
-                        source_info = None
-                
-                if source_info:
-                    # Try to match with existing company
-                    company_id = None
-                    if source_info.get('company_name'):
-                        company = await self._get_company_by_name_or_domain(
-                            source_info['company_name'], 
-                            domain
-                        )
-                        if company:
-                            company_id = company['id']
-                    
+                if company_data:
+                    # Return source info using data from company enrichment
                     return {
-                        'type': source_info.get('source_type', 'OTHER').lower(),
-                        'company_id': company_id,
-                        'company_name': source_info.get('company_name'),
-                        'industry': source_info.get('industry'),
-                        'description': source_info.get('description'),
-                        'reasoning': source_info.get('reasoning')
+                        'company': company_data['company_name'],
+                        'industry': company_data['industry'],
+                        'description': company_data['description'],
+                        'type': company_data['source_type'] or 'OTHER',  # source_type determined during enrichment
+                        'source': 'cognism_enrichment'
+                    }
+                else:
+                    # No company data found - return basic classification
+                    logger.warning(f"No enriched company data found for {domain}")
+                    return {
+                        'company': domain,
+                        'industry': 'Unknown',
+                        'description': f'Content from {domain}',
+                        'type': 'OTHER',
+                        'source': 'domain_only'
                     }
                     
         except Exception as e:
-            logger.error(f"AI source identification failed: {str(e)}")
+            logger.error(f"Error getting enriched source info for {domain}: {str(e)}")
+            return {
+                'company': domain,
+                'industry': 'Unknown', 
+                'description': f'Content from {domain}',
+                'type': 'OTHER',
+                'source': 'error_fallback'
+            }
         
-        # Fallback to basic classification
-        return {'type': 'other', 'reasoning': 'Could not identify source'}
-    
-
+        # Special handling for YouTube videos (simplified)
+        if 'youtube.com' in domain or 'youtu.be' in domain:
+            return {
+                'company': 'YouTube',
+                'industry': 'Social Media',
+                'description': 'YouTube video content',
+                'type': 'SOCIAL_MEDIA',
+                'source': 'youtube_platform'
+            }
     
     def _generate_content_id(self, url: str, content: str) -> UUID:
         """Generate a unique content ID based on URL and content hash"""
+        import hashlib
+        from uuid import UUID
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         unique_string = f"{url}:{content_hash}"
         return UUID(hashlib.md5(unique_string.encode()).hexdigest())
-    
+
     async def _get_enhanced_client_config(self, client_id: str) -> AnalysisConfig:
         """Get enhanced client configuration with competitor info"""
         async with self.db.acquire() as conn:

@@ -1,0 +1,89 @@
+﻿Strategic Pillars
+Customer Obsession
+Finastra defines customer-centricity as acting like a true partner: solving problems side-by-side, listening through advisory boards and feedback loops, and moving quickly on what’s heard. It includes advising, challenging, or leading when needed to help customers modernize systems, improve security, and adopt innovation—always on the customer’s terms. The aim is tangible customer value and successful adoption, not just software delivery.
+
+What counts: Concrete partner-like behaviors that turn customer input into action and outcomes. Evidence of advisory boards, feedback loops, co-planning, and measurable improvements (adoption, time-to-value, cost savings) for named customers.
+Strong signals: Customer Advisory Boards / VOC; roadmap co-creation; QBRs/success plans; rapid response and guided modernization; named outcomes/metrics.
+Weak/insufficient: Slogans (“customer-first”) or generic testimonials without actions or results.
+Exclude: Pure service availability/SLA claims with no link to listening → action → outcome.
+Scoring guidance (0–10):
+• 0–2: Generic partner language; no mechanisms or outcomes.
+• 3–4: Mentions programs (e.g., advisory board) or convenience features, but no evidence of impact.
+• 5–6: Describes mechanisms and at least one concrete customer action taken.
+• 7–8: Mechanisms + named customer(s) with quantified outcome(s).
+• 9–10: Programmatic, repeatable practice across customers with multiple quantified outcomes and continuous loops.
+
+Reliable, Secure & Trusted Financial Services Software
+Trust underpins everything Finastra builds. The focus is secure-by-design, reliable software that runs critical banking operations and helps institutions stay resilient, compliant, and future-ready. Customers should be able to innovate confidently, knowing protections, reliability practices, and regulatory alignment are baked into the platform and backed by an accountable partner.
+
+What counts: Secure-by-design practices, audited controls, resilience patterns, and regulatory alignment for critical workloads—described specifically (not marketing speak).
+Strong signals: SOC 2/ISO 27001/PCI; secure SDLC/threat modeling/pen tests; encryption & key mgmt (HSM/KMS/SBOM); SLO/SLA, RTO/RPO, active-active, DR drills/postmortems; data residency, audit trails, SoD.
+Weak/insufficient: “Bank-grade/enterprise-grade security,” “trusted,” “robust” with no artifact.
+Exclude: Trust language detached from controls, certification, or architecture.
+Scoring guidance (0–10):
+• 0–2: Trust/security claims only.
+• 3–4: One control or certification mentioned without depth.
+• 5–6: Multiple controls/certs or clear reliability targets (e.g., RTO/RPO).
+• 7–8: Controls + reliability patterns + compliance specifics tied to banking workloads.
+• 9–10: Comprehensive program (certs + secure SDLC + resilience metrics + audits) with evidence of continuous improvement.
+
+Co-Innovation
+Innovation is a collaborative practice at Finastra—built with customers, partners, fintechs, and internal experts. Through design-thinking workshops, collaborative pilots, and continuous feedback loops, new capabilities (including GenAI) are shaped to be practical, scalable, and impactful. The goal is to help financial institutions move faster, stay ahead of change, and deliver better outcomes for people and communities.
+What counts: Collaborative creation with customers/partners/fintechs (workshops, pilots, POCs) that feeds into roadmap and scales; practical, validated outcomes (incl. GenAI) shown.
+Strong signals: Design thinking/discovery workshops; joint pilots/POCs; co-authored features/IP; marketplace or partner integrations; feedback incorporated into GA releases.
+Weak/insufficient: “We innovate with customers” without programs, artifacts, or outcomes.
+Exclude: Internal R&D only; labs with no customer involvement.
+Scoring guidance (0–10):
+• 0–2: Innovation rhetoric only.
+• 3–4: Mentions pilots/partners but no detail or results.
+• 5–6: Describes a concrete workshop/pilot with learning or limited rollout.
+• 7–8: Joint initiative with measurable impact that shipped and scaled.
+• 9–10: Repeatable co-innovation framework with multiple shipped outcomes and ecosystem leverage.
+
+Business Units
+Payments
+Payments is a fast-evolving domain shaped by rising customer expectations, ISO 20022, and real-time, digital-first services. Financial institutions must process high volumes efficiently, cut operational friction, and meet compliance across domestic, cross-border, and instant rails. Modern strategies hinge on scalable infrastructure, fraud/risk controls, interoperability, and API-led connectivity to partners and fintechs—while automating operations and elevating customer experience amid ongoing regulatory change. Typical competitors to detect: FIS, Fiserv, Temenos, ACI Worldwide, Kyriba, Oracle Banking Payments, AccessPay, Mambu, Nomentia, PayU.
+
+What counts: Explicit coverage of payments rails/standards and operations: ISO 20022 migrations, domestic/cross-border/real-time rails, fraud/AML, screening, orchestration, STP, scheme compliance, liquidity, API-led connectivity.
+Strong signals: ISO 20022, SWIFT gpi, SEPA, FedNow, RTP, UPI, PIX, TIPS; payment hubs/orchestration; sanctions screening/AML/3DS2; event-driven/microservices; ops metrics.
+Weak/insufficient: “Faster/modern payments” with no rails, standards, or ops detail.
+Exclude: Generic “digital banking” content without payments specificity.
+Scoring guidance (0–10):
+• 0–2: Vague payments mentions.
+• 3–4: Names a rail/standard without depth.
+• 5–6: Covers 2–3 concrete elements (e.g., ISO 20022 + screening + hub).
+• 7–8: Architectural/operational depth with compliance and measurable benefits.
+• 9–10: End-to-end modernization narrative with rails, ops, resilience, and outcomes.
+
+Lending
+Lending spans consumer, mortgage, SME, commercial, and syndicated use cases, and is often constrained by legacy systems, manual work, and compliance pressure. Institutions seek to simplify operations and accelerate time-to-value by automating origination and underwriting, strengthening decisioning, ensuring compliance, and improving borrower experiences. Flexibility—modular tools, digital journeys, and seamless fintech integrations—is key to adapting quickly to market needs. Typical competitors to detect: FIS, Fiserv, Temenos, nCino, TCS BaNCS, Infosys Finacle, LendingFront, Mambu.
+What counts: Consumer/commercial/mortgage/syndicated lending across the lifecycle: origination → underwriting → documentation/closing → servicing, with controls, integrations, and outcomes.
+Strong signals: LOS/LMS, rule engines, model governance; KYC/AML, income/asset verification; pricing/decisioning; e-closing/e-vault; open banking data; borrower CX metrics (time-to-decision, pull-through, defaults).
+Weak/insufficient: “Better lending experiences” without lifecycle/process detail.
+Exclude: Generic CX without lending processes.
+Scoring guidance (0–10):
+• 0–2: Superficial lending references.
+• 3–4: Single step (e.g., origination) named without specifics.
+• 5–6: Multiple lifecycle steps or concrete tooling named.
+• 7–8: Full lifecycle + controls/integrations + measurable outcomes.
+• 9–10: Comprehensive program with governance, scalability, and demonstrated impact.
+
+Universal Banking
+Universal banks must deliver seamless, personalised experiences across retail, corporate, wealth, and more—while modernising the core. Success depends on unifying data, embracing open/composable architecture, and leveraging cloud to reduce complexity and increase agility. The target state enables rapid service launch, scaling across regions and channels, and faster responses to market and regulatory change—without compromising resilience or security. Typical competitors to detect: FIS, Fiserv, Temenos, Oracle FLEXCUBE, TCS BaNCS, Infosys Finacle, SDK.finance.
+What counts: Multi-LOB platform (retail/corporate/wealth, etc.) with composable/open architecture, unified data/CX, cloud modernization, and regulatory agility at scale.
+Strong signals: Composable/microservices/event streaming; API gateways/open architecture; single customer view, personalization, omnichannel; cloud migration patterns, regionalization, resilience.
+Weak/insufficient: “One platform for all banking” without architecture or CX unification.
+Exclude: Single-LOB product pages.
+Scoring guidance (0–10):
+• 0–2: Broad “platform” claims only.
+• 3–4: Mentions multi-LOB without tech detail.
+• 5–6: Names composable/Open APIs or unified CX elements.
+• 7–8: Clear architecture + operational model + CX unification.
+• 9–10: Proven multi-region, regulated deployment with architecture, ops, and outcomes.
+
+Global Scoring Rules (apply to every dimension)
+• Evidence threshold: If <120 relevant words for a dimension → cap at 0–2. Approx. +1 point per additional ~80 relevant, specific words (max 10).
+• Specificity over slogans: Strong, verifiable details outrank marketing phrasing; cap slogan-heavy content at ≤2–3.
+• Off-topic cap: If the page is about another area, cap the off-topic dimension at 1–2.
+• Competitor context (optional): If primarily about a competitor, you may cap at ≤9 unless explicitly contrasting Finastra with evidence.
+

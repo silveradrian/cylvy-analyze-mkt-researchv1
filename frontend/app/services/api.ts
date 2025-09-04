@@ -1,7 +1,10 @@
-"""
-API Service - Centralized API communication
-"""
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+/**
+ * API Service - Centralized API communication
+ */
+// Use relative URLs in browser to leverage Next.js proxy, full URLs for SSR
+const API_BASE = typeof window !== 'undefined' 
+  ? '/api/v1'  // Browser: use relative URL -> goes through Next.js proxy
+  : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001/api/v1'; // SSR: use full URL
 
 // Helper function for API calls
 async function apiCall(endpoint: string, options: RequestInit = {}) {
@@ -12,7 +15,7 @@ async function apiCall(endpoint: string, options: RequestInit = {}) {
   };
 
   // Add auth token if available
-  const token = localStorage.getItem('auth_token');
+  const token = localStorage.getItem('access_token');
   if (token) {
     defaultHeaders['Authorization'] = `Bearer ${token}`;
   }
@@ -74,7 +77,7 @@ export const configAPI = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('access_token');
     const response = await fetch(`${API_BASE}/config/logo`, {
       method: 'POST',
       headers: {
@@ -213,7 +216,7 @@ export const keywordsAPI = {
     formData.append('file', file);
     formData.append('regions', JSON.stringify(regions));
 
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('access_token');
     const response = await fetch(`${API_BASE}/keywords/upload`, {
       method: 'POST',
       headers: {
@@ -326,7 +329,7 @@ export const resultsAPI = {
       }
     });
     
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('access_token');
     const response = await fetch(`${API_BASE}/dashboard/export?${queryParams.toString()}`, {
       headers: {
         ...(token && { Authorization: `Bearer ${token}` }),

@@ -20,6 +20,8 @@ class ClientConfigBase(BaseModel):
     company_domain: str = Field(..., description="Primary company domain")
     admin_email: Optional[str] = Field(None, description="Admin contact email")
     support_email: Optional[str] = Field(None, description="Support contact email")
+    description: Optional[str] = Field(None, description="Company description")
+    industry: Optional[str] = Field(None, description="Company industry")
 
 
 class ClientConfigUpdate(BaseModel):
@@ -28,6 +30,8 @@ class ClientConfigUpdate(BaseModel):
     company_domain: Optional[str] = None
     admin_email: Optional[str] = None
     support_email: Optional[str] = None
+    description: Optional[str] = None
+    industry: Optional[str] = None
     primary_color: Optional[str] = Field(None, pattern="^#[0-9A-Fa-f]{6}$")
     secondary_color: Optional[str] = Field(None, pattern="^#[0-9A-Fa-f]{6}$")
 
@@ -40,6 +44,16 @@ class ClientConfigResponse(ClientConfigBase):
     secondary_color: str = "#10B981"
     created_at: str
     updated_at: str
+    
+    @classmethod
+    def from_db_record(cls, record):
+        """Convert database record to response model"""
+        data = dict(record)
+        # Convert UUID and datetime to strings
+        data['id'] = str(data['id']) if data.get('id') else 'default'
+        data['created_at'] = data['created_at'].isoformat() if data.get('created_at') else ''
+        data['updated_at'] = data['updated_at'].isoformat() if data.get('updated_at') else ''
+        return cls(**data)
 
 
 class BrandingConfig(BaseModel):
@@ -69,7 +83,9 @@ async def get_client_config(
             created_at="",
             updated_at=""
         )
-    return config
+    
+    # Convert database record to proper response format
+    return ClientConfigResponse.from_db_record(config)
 
 
 @router.put("", response_model=ClientConfigResponse)
@@ -88,7 +104,7 @@ async def update_client_config(
         raise HTTPException(status_code=400, detail="No updates provided")
     
     updated_config = await config_service.update_config(updates)
-    return updated_config
+    return ClientConfigResponse.from_db_record(updated_config)
 
 
 @router.get("/branding", response_model=BrandingConfig)
@@ -155,28 +171,41 @@ async def delete_logo(
 @router.get("/setup-status")
 async def get_setup_status():
     """Check if initial setup is complete"""
-    config = await config_service.get_config()
-    analysis_config = await config_service.get_analysis_config()
-    api_keys = await config_service.get_api_keys_status()
-    
-    setup_complete = (
-        config is not None and
-        config.company_name != "My Company" and
-        config.company_domain != "example.com" and
-        len(analysis_config.personas) > 0 and
-        len(analysis_config.jtbd_phases) > 0 and
-        api_keys.get("openai", False) and
-        api_keys.get("scale_serp", False)
-    )
-    
-    return {
-        "setup_complete": setup_complete,
-        "steps_completed": {
-            "company_info": config is not None and config.company_name != "My Company",
-            "branding": config is not None and config.company_logo_url is not None,
-            "api_keys": api_keys,
-            "personas": len(analysis_config.personas) > 0,
-            "jtbd_phases": len(analysis_config.jtbd_phases) > 0
+    try:
+        config = await config_service.get_config()
+        
+        # Simple setup status based on client config only
+        has_company_config = (
+            config is not None and
+            config.company_name and
+            config.company_name != "My Company" and
+            config.company_domain and
+            config.company_domain != "example.com"
+        )
+        
+        return {
+            "setup_complete": has_company_config,
+            "steps_completed": {
+                "company_info": has_company_config,
+                "branding": config is not None and getattr(config, 'company_logo_url', None) is not None,
+                "api_keys": False,  # Simplified for now
+                "personas": False,  # Simplified for now
+                "jtbd_phases": False  # Simplified for now
+            },
+            "company_name": config.company_name if config else None,
+            "company_domain": config.company_domain if config else None
         }
-    }
+    except Exception as e:
+        # Return safe default if anything fails
+        return {
+            "setup_complete": False,
+            "steps_completed": {
+                "company_info": False,
+                "branding": False,
+                "api_keys": False,
+                "personas": False,
+                "jtbd_phases": False
+            },
+            "error": str(e)
+        }
 

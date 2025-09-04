@@ -48,11 +48,30 @@ class AnalysisConfigService:
                     "SELECT id FROM analysis_config LIMIT 1"
                 )
             
-            # Convert lists/dicts to JSON
+            # Convert lists/dicts to JSON (handle Pydantic models)
             json_fields = ['personas', 'jtbd_phases', 'competitor_domains', 'custom_dimensions']
             for field in json_fields:
                 if field in updates and not isinstance(updates[field], str):
-                    updates[field] = json.dumps(updates[field])
+                    # Convert Pydantic models to dicts before JSON serialization
+                    if hasattr(updates[field], '__iter__') and not isinstance(updates[field], (str, dict)):
+                        # Handle list of Pydantic models
+                        serializable_data = []
+                        for item in updates[field]:
+                            if hasattr(item, 'model_dump'):  # Pydantic v2
+                                serializable_data.append(item.model_dump())
+                            elif hasattr(item, 'dict'):  # Pydantic v1 compatibility
+                                serializable_data.append(item.dict())
+                            else:
+                                serializable_data.append(item)
+                        updates[field] = json.dumps(serializable_data)
+                    else:
+                        # Handle single Pydantic model or regular data
+                        if hasattr(updates[field], 'model_dump'):  # Pydantic v2
+                            updates[field] = json.dumps(updates[field].model_dump())
+                        elif hasattr(updates[field], 'dict'):  # Pydantic v1 compatibility
+                            updates[field] = json.dumps(updates[field].dict())
+                        else:
+                            updates[field] = json.dumps(updates[field])
             
             # Build update query
             set_clauses = []

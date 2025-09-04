@@ -216,3 +216,5 @@ export function BrandingStep({ data, onComplete, onBack }: BrandingStepProps) {
   );
 }
 
+export default BrandingStep;
+

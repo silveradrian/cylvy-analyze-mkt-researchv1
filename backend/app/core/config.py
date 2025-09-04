@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = Field(
-        ["http://localhost:3000", "http://localhost:8000"],
+        ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:8000"],
         env="BACKEND_CORS_ORIGINS"
     )
     ALLOWED_HOSTS: List[str] = Field(["*"], env="ALLOWED_HOSTS")

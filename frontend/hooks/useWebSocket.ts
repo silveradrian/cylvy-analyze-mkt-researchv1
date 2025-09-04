@@ -24,9 +24,9 @@ export function useWebSocket(endpoint: string): UseWebSocketReturn {
   const maxReconnectAttempts = 5;
   
   const getWebSocketUrl = () => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    return `${protocol}//${host}${endpoint}`;
+    // Use backend WebSocket URL from environment or default to localhost:8001
+    const wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8001';
+    return `${wsBaseUrl}${endpoint}`;
   };
 
   const connect = () => {

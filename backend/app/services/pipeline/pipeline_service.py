@@ -20,7 +20,9 @@ from app.services.enrichment.video_enricher import VideoEnricher
 from app.services.scraping.web_scraper import WebScraper
 from app.services.analysis.content_analyzer import ContentAnalyzer
 from app.services.metrics.dsi_calculator import DSICalculator
+# from app.services.keywords.enhanced_google_ads_service import EnhancedGoogleAdsService  # Disabled for testing
 from app.services.historical_data_service import HistoricalDataService
+from app.services.landscape.production_landscape_calculator import ProductionLandscapeCalculator
 from app.services.websocket_service import WebSocketService
 
 
@@ -31,6 +33,7 @@ class PipelineMode(str, Enum):
 
 
 class PipelinePhase(str, Enum):
+    KEYWORD_METRICS_ENRICHMENT = "keyword_metrics_enrichment"
     SERP_COLLECTION = "serp_collection"
     COMPANY_ENRICHMENT = "company_enrichment"
     VIDEO_ENRICHMENT = "video_enrichment"
@@ -38,6 +41,7 @@ class PipelinePhase(str, Enum):
     CONTENT_ANALYSIS = "content_analysis"
     DSI_CALCULATION = "dsi_calculation"
     HISTORICAL_SNAPSHOT = "historical_snapshot"
+    LANDSCAPE_DSI_CALCULATION = "landscape_dsi_calculation"
 
 
 class PipelineStatus(str, Enum):
@@ -50,6 +54,7 @@ class PipelineStatus(str, Enum):
 
 class PipelineConfig(BaseModel):
     """Pipeline execution configuration"""
+    client_id: str = "system"  # Client ID for data isolation
     keywords: Optional[List[str]] = None  # If None, uses all keywords
     regions: List[str] = ["US", "UK"]
     content_types: List[str] = ["organic", "news", "video"]
@@ -60,10 +65,12 @@ class PipelineConfig(BaseModel):
     max_concurrent_analysis: int = 20
     
     # Feature flags
+    enable_keyword_metrics: bool = True
     enable_company_enrichment: bool = True
     enable_video_enrichment: bool = True
     enable_content_analysis: bool = True
     enable_historical_tracking: bool = True
+    enable_landscape_dsi: bool = True
     force_refresh: bool = False
     
     # Scheduling (if applicable)
@@ -84,10 +91,12 @@ class PipelineResult(BaseModel):
     
     # Summary statistics
     keywords_processed: int = 0
+    keywords_with_metrics: int = 0
     serp_results_collected: int = 0
     companies_enriched: int = 0
     videos_enriched: int = 0
     content_analyzed: int = 0
+    landscapes_calculated: int = 0
     
     # Errors
     errors: List[str] = []
@@ -108,10 +117,12 @@ class PipelineService:
         # Initialize service dependencies
         self.serp_collector = SERPCollector(settings, db)
         self.company_enricher = CompanyEnricher(settings, db)
-        self.video_enricher = VideoEnricher(settings, db)
+        self.video_enricher = VideoEnricher(db, settings)
         self.web_scraper = WebScraper(settings, db)
         self.content_analyzer = ContentAnalyzer(settings, db)
         self.dsi_calculator = DSICalculator(settings, db)
+        # self.google_ads_service = EnhancedGoogleAdsService()  # Disabled for testing
+        self.landscape_calculator = ProductionLandscapeCalculator(db)
         self.historical_service = HistoricalDataService(db, settings)
         self.websocket_service = WebSocketService()
         
@@ -180,7 +191,16 @@ class PipelineService:
             await self._save_pipeline_state(result)
             await self._broadcast_status(pipeline_id, "Pipeline started")
             
-            # Phase 1: SERP Collection
+            # Phase 1: Keyword Metrics Enrichment (if enabled)
+            if config.enable_keyword_metrics:
+                logger.info(f"Pipeline {pipeline_id}: Keyword metrics enrichment disabled for testing")
+                # Temporarily disabled until Google Ads API is configured
+                result.phase_results[PipelinePhase.KEYWORD_METRICS_ENRICHMENT] = {
+                    'keywords_with_metrics': 0,
+                    'message': 'Google Ads API not configured - phase skipped'
+                }
+            
+            # Phase 2: SERP Collection
             logger.info(f"Pipeline {pipeline_id}: Starting SERP collection")
             await self._broadcast_status(pipeline_id, "Collecting SERP data...")
             
@@ -193,7 +213,7 @@ class PipelineService:
             if result.status == PipelineStatus.CANCELLED:
                 return
             
-            # Phase 2: Company Enrichment
+            # Phase 3: Company Enrichment
             if config.enable_company_enrichment and serp_result.get('unique_domains'):
                 logger.info(f"Pipeline {pipeline_id}: Starting company enrichment")
                 await self._broadcast_status(pipeline_id, "Enriching company data...")
@@ -204,7 +224,7 @@ class PipelineService:
                 result.phase_results[PipelinePhase.COMPANY_ENRICHMENT] = enrichment_result
                 result.companies_enriched = enrichment_result.get('companies_enriched', 0)
             
-            # Phase 3: Video Enrichment
+            # Phase 4: Video Enrichment
             if config.enable_video_enrichment and serp_result.get('video_urls'):
                 logger.info(f"Pipeline {pipeline_id}: Starting video enrichment")
                 await self._broadcast_status(pipeline_id, "Enriching video content...")
@@ -215,7 +235,7 @@ class PipelineService:
                 result.phase_results[PipelinePhase.VIDEO_ENRICHMENT] = video_result
                 result.videos_enriched = video_result.get('videos_enriched', 0)
             
-            # Phase 4: Content Scraping
+            # Phase 5: Content Scraping
             if serp_result.get('content_urls'):
                 logger.info(f"Pipeline {pipeline_id}: Starting content scraping")
                 await self._broadcast_status(pipeline_id, "Scraping web content...")
@@ -225,7 +245,7 @@ class PipelineService:
                 )
                 result.phase_results[PipelinePhase.CONTENT_SCRAPING] = scraping_result
             
-            # Phase 5: Content Analysis
+            # Phase 6: Content Analysis
             if config.enable_content_analysis:
                 logger.info(f"Pipeline {pipeline_id}: Starting content analysis")
                 await self._broadcast_status(pipeline_id, "Analyzing content with AI...")
@@ -234,20 +254,29 @@ class PipelineService:
                 result.phase_results[PipelinePhase.CONTENT_ANALYSIS] = analysis_result
                 result.content_analyzed = analysis_result.get('content_analyzed', 0)
             
-            # Phase 6: DSI Calculation
+            # Phase 7: DSI Calculation
             logger.info(f"Pipeline {pipeline_id}: Calculating DSI metrics")
             await self._broadcast_status(pipeline_id, "Calculating DSI rankings...")
             
             dsi_result = await self._execute_dsi_calculation_phase()
             result.phase_results[PipelinePhase.DSI_CALCULATION] = dsi_result
             
-            # Phase 7: Historical Snapshot (if enabled)
+            # Phase 8: Historical Snapshot (if enabled)
             if config.enable_historical_tracking:
                 logger.info(f"Pipeline {pipeline_id}: Creating historical snapshot")
                 await self._broadcast_status(pipeline_id, "Creating historical snapshot...")
                 
                 snapshot_result = await self._execute_historical_snapshot_phase()
                 result.phase_results[PipelinePhase.HISTORICAL_SNAPSHOT] = snapshot_result
+            
+            # Phase 9: Landscape DSI Calculation (if enabled)
+            if config.enable_landscape_dsi:
+                logger.info(f"Pipeline {pipeline_id}: Calculating Landscape DSI metrics")
+                await self._broadcast_status(pipeline_id, "Calculating Digital Landscape DSI metrics...")
+                
+                landscape_result = await self._execute_landscape_dsi_calculation_phase(config)
+                result.phase_results[PipelinePhase.LANDSCAPE_DSI_CALCULATION] = landscape_result
+                result.landscapes_calculated = landscape_result.get('landscapes_calculated', 0)
             
             # Complete pipeline
             result.status = PipelineStatus.COMPLETED
@@ -482,6 +511,116 @@ class PipelineService:
                 'error': str(e)
             }
     
+    async def _execute_keyword_metrics_enrichment_phase(self, config: PipelineConfig, pipeline_id: UUID) -> Dict[str, Any]:
+        """Execute keyword metrics enrichment using Google Ads Historical Metrics API"""
+        try:
+            # Get keywords to process
+            if config.keywords:
+                keywords = await self._get_keywords_by_text(config.keywords)
+            else:
+                keywords = await self._get_all_keywords()
+            
+            if not keywords:
+                return {
+                    'keywords_with_metrics': 0,
+                    'message': 'No keywords found to process'
+                }
+            
+            keyword_texts = [kw['keyword'] for kw in keywords]
+            
+            logger.info(f"Enriching {len(keyword_texts)} keywords with Google Ads historical metrics across {len(config.regions)} countries")
+            
+            # Use Enhanced Google Ads service for batch processing (if available)
+            if hasattr(self, 'google_ads_service'):
+                country_metrics = await self.google_ads_service.get_historical_metrics_batch(
+                    keywords=keyword_texts,
+                    countries=config.regions,
+                    months_back=12,  # Get 12 months of historical data
+                    pipeline_execution_id=str(pipeline_id)  # Link to current pipeline run
+                )
+            else:
+                logger.warning("Google Ads service not available - skipping keyword metrics enrichment")
+                country_metrics = {country: [] for country in config.regions}
+            
+            # Calculate results
+            total_keywords_with_metrics = 0
+            country_results = {}
+            
+            for country, metrics in country_metrics.items():
+                country_results[country] = {
+                    'keywords_processed': len(metrics),
+                    'avg_monthly_searches': sum(m.avg_monthly_searches for m in metrics) // len(metrics) if metrics else 0,
+                    'high_competition_count': len([m for m in metrics if m.competition_level == 'HIGH'])
+                }
+                total_keywords_with_metrics += len(metrics)
+            
+            return {
+                'keywords_with_metrics': total_keywords_with_metrics,
+                'country_results': country_results,
+                'total_countries': len(config.regions),
+                'total_keywords': len(keyword_texts),
+                'api_calls_made': len(config.regions)  # One batch call per country
+            }
+            
+        except Exception as e:
+            logger.error(f"Keyword metrics enrichment phase failed: {str(e)}")
+            return {
+                'keywords_with_metrics': 0,
+                'error': str(e)
+            }
+    
+    async def _execute_landscape_dsi_calculation_phase(self, config: PipelineConfig) -> Dict[str, Any]:
+        """Execute Digital Landscape DSI calculations for all active landscapes"""
+        try:
+            # Get all active landscapes
+            landscapes = await self._get_active_landscapes()
+            
+            if not landscapes:
+                return {
+                    'landscapes_calculated': 0,
+                    'message': 'No active landscapes found'
+                }
+            
+            landscapes_calculated = 0
+            landscape_results = {}
+            errors = []
+            
+            # Calculate DSI for each landscape
+            for landscape in landscapes:
+                try:
+                    logger.info(f"Calculating DSI for landscape: {landscape['name']}")
+                    
+                    result = await self.landscape_calculator.calculate_and_store_landscape_dsi(
+                        landscape['id'], config.client_id
+                    )
+                    
+                    landscape_results[landscape['name']] = {
+                        'companies': result.total_companies,
+                        'keywords': result.total_keywords,
+                        'calculation_duration': result.calculation_duration_seconds
+                    }
+                    landscapes_calculated += 1
+                    
+                except Exception as e:
+                    error_msg = f"Failed to calculate landscape '{landscape['name']}': {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
+            
+            return {
+                'landscapes_calculated': landscapes_calculated,
+                'landscape_results': landscape_results,
+                'total_landscapes': len(landscapes),
+                'errors': errors,
+                'success_rate': landscapes_calculated / len(landscapes) if landscapes else 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Landscape DSI calculation phase failed: {str(e)}")
+            return {
+                'landscapes_calculated': 0,
+                'error': str(e)
+            }
+    
     async def _get_keywords_by_text(self, keyword_texts: List[str]) -> List[Dict]:
         """Get keyword records by text"""
         async with db_pool.acquire() as conn:
@@ -540,6 +679,23 @@ class PipelineService:
             )
             return [dict(row) for row in results]
     
+    async def _get_active_landscapes(self) -> List[Dict]:
+        """Get all active digital landscapes"""
+        async with db_pool.acquire() as conn:
+            results = await conn.fetch(
+                """
+                SELECT l.id, l.name, l.description,
+                       COUNT(lk.keyword_id) as keyword_count
+                FROM digital_landscapes l
+                LEFT JOIN landscape_keywords lk ON l.id = lk.landscape_id
+                WHERE l.is_active = true
+                GROUP BY l.id, l.name, l.description
+                HAVING COUNT(lk.keyword_id) > 0
+                ORDER BY l.name
+                """
+            )
+            return [dict(row) for row in results]
+    
     async def _save_pipeline_state(self, result: PipelineResult):
         """Save pipeline state to database"""
         async with db_pool.acquire() as conn:
@@ -547,19 +703,21 @@ class PipelineService:
                 """
                 INSERT INTO pipeline_executions (
                     id, status, mode, started_at, completed_at,
-                    phase_results, keywords_processed, serp_results_collected,
-                    companies_enriched, videos_enriched, content_analyzed,
+                    phase_results, keywords_processed, keywords_with_metrics, serp_results_collected,
+                    companies_enriched, videos_enriched, content_analyzed, landscapes_calculated,
                     errors, warnings, api_calls_made, estimated_cost
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                 ON CONFLICT (id) DO UPDATE SET
                     status = EXCLUDED.status,
                     completed_at = EXCLUDED.completed_at,
                     phase_results = EXCLUDED.phase_results,
                     keywords_processed = EXCLUDED.keywords_processed,
+                    keywords_with_metrics = EXCLUDED.keywords_with_metrics,
                     serp_results_collected = EXCLUDED.serp_results_collected,
                     companies_enriched = EXCLUDED.companies_enriched,
                     videos_enriched = EXCLUDED.videos_enriched,
                     content_analyzed = EXCLUDED.content_analyzed,
+                    landscapes_calculated = EXCLUDED.landscapes_calculated,
                     errors = EXCLUDED.errors,
                     warnings = EXCLUDED.warnings,
                     api_calls_made = EXCLUDED.api_calls_made,
@@ -572,10 +730,12 @@ class PipelineService:
                 result.completed_at,
                 json.dumps(result.phase_results),
                 result.keywords_processed,
+                result.keywords_with_metrics,
                 result.serp_results_collected,
                 result.companies_enriched,
                 result.videos_enriched,
                 result.content_analyzed,
+                result.landscapes_calculated,
                 json.dumps(result.errors),
                 json.dumps(result.warnings),
                 json.dumps(result.api_calls_made),
@@ -594,6 +754,9 @@ class PipelineService:
                 return None
             
             data = dict(row)
+            # Map database field to model field
+            if 'id' in data:
+                data['pipeline_id'] = data.pop('id')
             # Parse JSON fields
             data['phase_results'] = json.loads(data['phase_results'] or '{}')
             data['errors'] = json.loads(data['errors'] or '[]')
@@ -637,6 +800,9 @@ class PipelineService:
             results = []
             for row in rows:
                 data = dict(row)
+                # Map database field to model field
+                if 'id' in data:
+                    data['pipeline_id'] = data.pop('id')
                 data['phase_results'] = json.loads(data['phase_results'] or '{}')
                 data['errors'] = json.loads(data['errors'] or '[]')
                 data['warnings'] = json.loads(data['warnings'] or '[]')

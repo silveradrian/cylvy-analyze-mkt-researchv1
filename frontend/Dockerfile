@@ -57,6 +57,9 @@ RUN npm install
 # Copy source code
 COPY . .
 
+# Create .next directory with proper permissions
+RUN mkdir -p .next && chown -R node:node .next
+
 USER node
 
 EXPOSE 3000

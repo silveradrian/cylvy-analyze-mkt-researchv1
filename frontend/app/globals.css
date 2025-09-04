@@ -1,0 +1,283 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Cylvy Brand Colors */
+    --cylvy-amaranth: 229 24 72;     /* #E51848 */
+    --cylvy-grape: 136 6 191;        /* #8806BF */
+    --cylvy-midnight: 26 26 46;      /* #1A1A2E */
+    --cylvy-slate: 22 33 62;         /* #16213E */
+    
+    /* Semantic Colors */
+    --color-success: 16 185 129;     /* #10B981 */
+    --color-warning: 245 158 11;     /* #F59E0B */
+    --color-error: 239 68 68;        /* #EF4444 */
+    --color-info: 59 130 246;        /* #3B82F6 */
+    
+    /* Cylvy Design System Variables */
+    --background: 249 250 251;       /* Light mode background */
+    --foreground: 17 24 39;          /* Dark text */
+
+    --card: 255 255 255;             /* White cards */
+    --card-foreground: 17 24 39;     /* Dark text on cards */
+
+    --popover: 255 255 255;
+    --popover-foreground: 17 24 39;
+
+    --primary: var(--cylvy-amaranth); /* Cylvy Amaranth as primary */
+    --primary-foreground: 255 255 255;
+
+    --secondary: var(--cylvy-grape);   /* Cylvy Grape as secondary */
+    --secondary-foreground: 255 255 255;
+
+    --muted: 243 244 246;            /* Light gray */
+    --muted-foreground: 107 114 128; /* Muted text */
+    --placeholder: 107 114 128;      /* Visible placeholder text */
+
+    --accent: var(--cylvy-slate);     /* Cylvy Slate for accents */
+    --accent-foreground: 255 255 255;
+
+    --destructive: var(--color-error);
+    --destructive-foreground: 255 255 255;
+
+    --border: 229 231 235;           /* Light borders */
+    --input: 229 231 235;            /* Input borders */
+    --ring: var(--cylvy-amaranth);   /* Focus rings in brand color */
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Dark mode using Cylvy Midnight/Slate */
+    --background: var(--cylvy-midnight); /* #1A1A2E */
+    --foreground: 243 244 246;           /* Light text */
+
+    --card: var(--cylvy-slate);          /* #16213E for cards */
+    --card-foreground: 229 231 235;     /* Light text on cards */
+
+    --popover: var(--cylvy-slate);
+    --popover-foreground: 229 231 235;
+
+    --primary: var(--cylvy-amaranth);    /* Keep Cylvy Amaranth */
+    --primary-foreground: 255 255 255;
+
+    --secondary: var(--cylvy-grape);     /* Keep Cylvy Grape */
+    --secondary-foreground: 255 255 255;
+
+    --muted: 55 65 81;                   /* Dark muted */
+    --muted-foreground: 156 163 175;     /* Light muted text */
+
+    --accent: var(--cylvy-grape);        /* Cylvy Grape accent */
+    --accent-foreground: 255 255 255;
+
+    --destructive: var(--color-error);
+    --destructive-foreground: 255 255 255;
+
+    --border: 75 85 99;                  /* Dark borders */
+    --input: 75 85 99;                   /* Dark input borders */
+    --ring: var(--cylvy-amaranth);       /* Focus rings in Cylvy Amaranth */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-gradient-to-br from-gray-50 to-gray-100 text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  
+  /* Force all content areas to have proper backgrounds */
+  main, .main-content, [data-radix-tabs-content] {
+    background: transparent !important;
+  }
+}
+
+/* Cylvy Design System Components */
+@layer components {
+  /* Cylvy Gradients */
+  .cylvy-gradient-primary {
+    background: linear-gradient(135deg, rgb(229, 24, 72) 0%, rgb(136, 6, 191) 100%);
+  }
+  
+  .cylvy-gradient-dark {
+    background: linear-gradient(135deg, rgb(26, 26, 46) 0%, rgb(22, 33, 62) 100%);
+  }
+  
+  /* Input Styling Fix */
+  input::placeholder, textarea::placeholder {
+    color: rgb(107 114 128) !important; /* Visible gray placeholder text */
+    opacity: 1 !important;
+  }
+  
+  /* Fix browser autofill yellow backgrounds */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: rgb(17 24 39) !important;
+    transition: background-color 5000s ease-in-out 0s !important;
+    box-shadow: inset 0 0 20px 20px rgb(255 255 255) !important;
+  }
+  
+  /* Remove any yellow backgrounds from form elements */
+  input, textarea, select {
+    background-color: white !important;
+  }
+  
+  /* Targeted yellow background fix - only for form elements */
+  input:-webkit-autofill,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    background-color: white !important;
+  }
+  
+  /* Tab content text color fix */
+  [data-radix-tabs-content] {
+    color: rgb(17 24 39) !important; /* Dark gray text */
+    background-color: transparent !important;
+  }
+  
+  /* Ensure all tab content has proper backgrounds */
+  [data-radix-tabs-content] > div,
+  [data-radix-tabs-content] .space-y-4 {
+    background-color: transparent !important;
+  }
+  
+  /* COMPREHENSIVE YELLOW ELIMINATION - ALL SCENARIOS */
+  
+  /* Tab system backgrounds */
+  [role="tablist"],
+  [role="tab"],
+  [role="tabpanel"],
+  [data-state="active"],
+  [data-state="inactive"] {
+    background-color: transparent !important;
+  }
+  
+  /* All form and container elements */
+  .space-y-4 > div,
+  .space-y-3 > div,
+  .grid > div,
+  form > div,
+  .border,
+  .border.rounded-lg,
+  .p-4.border.rounded-lg,
+  .border.rounded-lg.space-y-3,
+  .p-4.border.rounded-lg.space-y-3 {
+    background-color: white !important;
+  }
+  
+  /* Tab content and panels */
+  [role="tabpanel"] > div,
+  .tabpanel-content,
+  .tab-content {
+    background-color: white !important;
+  }
+  
+  /* Persona form containers specifically */
+  .persona-container,
+  .jtbd-container {
+    background-color: white !important;
+    border-color: rgb(209 213 219) !important; /* Gray border instead of yellow */
+  }
+  
+  /* Cylvy Button System */
+  .cylvy-btn-primary {
+    @apply cylvy-gradient-primary text-white font-medium px-6 py-2 rounded-lg;
+    @apply hover:scale-105 hover:shadow-lg transition-all duration-200;
+    @apply focus:ring-2 focus:ring-[rgb(229,24,72)] focus:ring-offset-2;
+  }
+  
+  .cylvy-btn-secondary {
+    @apply border-2 border-[rgb(136,6,191)] text-[rgb(136,6,191)] font-medium px-6 py-2 rounded-lg;
+    @apply hover:bg-[rgb(136,6,191)] hover:text-white transition-all duration-200;
+    @apply focus:ring-2 focus:ring-[rgb(136,6,191)] focus:ring-offset-2;
+  }
+  
+  .cylvy-btn-ghost {
+    @apply text-[rgb(229,24,72)] font-medium px-6 py-2 rounded-lg;
+    @apply hover:bg-[rgb(229,24,72)]/10 transition-all duration-200;
+  }
+  
+  /* Cylvy Card System */
+  .cylvy-card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden;
+  }
+  
+  .cylvy-card-hover {
+    @apply cylvy-card hover:scale-[1.02] hover:shadow-xl transition-all duration-300;
+    box-shadow: 0 4px 6px rgba(229, 24, 72, 0.1), 0 1px 3px rgba(136, 6, 191, 0.08);
+  }
+  
+  .cylvy-card-header {
+    @apply px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100;
+  }
+  
+  .cylvy-card-body {
+    @apply px-6 py-4;
+  }
+  
+  /* Cylvy Form Elements */
+  .cylvy-input {
+    @apply w-full px-4 py-2 border border-gray-300 rounded-lg;
+    @apply focus:ring-2 focus:ring-[rgb(229,24,72)] focus:border-transparent;
+    @apply transition-all duration-200;
+  }
+  
+  .cylvy-label {
+    @apply text-sm font-semibold text-gray-700 mb-2 block;
+  }
+  
+  /* Status Badges */
+  .cylvy-badge-success {
+    @apply bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium;
+  }
+  
+  .cylvy-badge-warning {
+    @apply bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-medium;
+  }
+  
+  .cylvy-badge-error {
+    @apply bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium;
+  }
+  
+  .cylvy-badge-primary {
+    @apply bg-[rgb(229,24,72)]/10 text-[rgb(229,24,72)] px-2 py-1 rounded-full text-xs font-medium;
+  }
+}
+
+/* Cylvy Animations */
+@layer utilities {
+  .animate-cylvy-fade-in {
+    animation: cylvy-fade-in 0.3s ease-out;
+  }
+  
+  .animate-cylvy-slide-up {
+    animation: cylvy-slide-up 0.4s ease-out;
+  }
+  
+  .animate-cylvy-scale {
+    animation: cylvy-scale 0.2s ease-out;
+  }
+}
+
+@keyframes cylvy-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes cylvy-slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cylvy-scale {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}

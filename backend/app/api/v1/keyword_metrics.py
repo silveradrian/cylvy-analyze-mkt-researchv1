@@ -57,8 +57,8 @@ async def get_keywords_service():
 @router.post("/fetch")
 async def fetch_keyword_metrics(
     keywords: List[str],
-    location_id: str = "2840",  # US by default
     background_tasks: BackgroundTasks,
+    location_id: str = "2840",  # US by default
     current_user: User = Depends(require_admin),
     ads_service: GoogleAdsService = Depends(get_google_ads_service)
 ):

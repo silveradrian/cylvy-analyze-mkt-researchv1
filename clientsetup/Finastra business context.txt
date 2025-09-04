@@ -1,0 +1,9 @@
+﻿About Finastra	
+
+"Finastra is one of the world’s largest financial software providers, supporting 8,000 customers, including 90% of the top 50 global banks with reliable, secure and trusted solutions. 
+
+We deliver cloud-first platforms across lending, payments, banking, and treasury and capital markets, helping institutions run critical operations, stay compliant and serve their customers with confidence. This includes $3.8 trillion of syndicated loans being underwritten by clients, and helping move $7 trillion in transactions every single day.  
+
+But we’re more than a vendor. We work alongside customers as a partner to create solutions that address real-world challenges and unlock new opportunities. 
+
+By combining decades of proven expertise with the latest technologies – from open APIs to Gen AI – we help financial institutions adapt faster, innovate smarter and grow stronger. Whether improving resilience, tackling emerging risks or shaping what’s next, Finastra is here to help customers unlock the value of financial services technology. "

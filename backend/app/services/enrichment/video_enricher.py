@@ -60,10 +60,10 @@ class VideoEnricher:
         self.settings = settings
         self.redis = redis_client
         self.youtube = None
-        if settings.youtube_api_key:
-            self.youtube = build('youtube', 'v3', developerKey=settings.youtube_api_key)
+        if settings.YOUTUBE_API_KEY:
+            self.youtube = build('youtube', 'v3', developerKey=settings.YOUTUBE_API_KEY)
         self.quota_manager = YouTubeQuotaManager(daily_limit=10000)
-        self._semaphore = asyncio.Semaphore(settings.video_enricher_concurrent_limit or 5)
+        self._semaphore = asyncio.Semaphore(getattr(settings, 'video_enricher_concurrent_limit', 5))
         
     def extract_video_id(self, url: str) -> Optional[str]:
         """Extract YouTube video ID from URL"""

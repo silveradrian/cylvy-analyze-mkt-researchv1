@@ -21,10 +21,10 @@ class SERPCollector:
         if settings is None:
             settings = get_settings()
         self.settings = settings
-        self.api_key = settings.scale_serp_api_key
-        self.base_url = settings.scale_serp_base_url
-        self.monthly_limit = settings.scale_serp_monthly_limit
-        self.overusage_limit = settings.scale_serp_overusage_limit
+        self.api_key = settings.SCALE_SERP_API_KEY
+        self.base_url = getattr(settings, 'SCALE_SERP_BASE_URL', 'https://api.scaleserp.com/search')
+        self.monthly_limit = getattr(settings, 'SCALE_SERP_MONTHLY_LIMIT', 1000)
+        self.overusage_limit = getattr(settings, 'SCALE_SERP_OVERUSAGE_LIMIT', 200)
         self.db = db
         self.redis = redis
         self.client = None  # Will be created when needed

@@ -8,9 +8,17 @@ import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from google.ads.googleads.client import GoogleAdsClient
-from google.ads.googleads.errors import GoogleAdsException
-from google.protobuf.json_format import MessageToDict
+try:
+    from google.ads.googleads.client import GoogleAdsClient
+    from google.ads.googleads.errors import GoogleAdsException
+    from google.protobuf.json_format import MessageToDict
+    GOOGLE_ADS_AVAILABLE = True
+except ImportError:
+    print("⚠️  Google Ads API library not installed - using fallback")
+    GoogleAdsClient = None
+    GoogleAdsException = Exception
+    MessageToDict = None
+    GOOGLE_ADS_AVAILABLE = False
 from aiolimiter import AsyncLimiter
 from tenacity import retry, stop_after_attempt, wait_exponential
 from loguru import logger

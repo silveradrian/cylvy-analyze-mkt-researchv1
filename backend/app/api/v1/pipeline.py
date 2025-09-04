@@ -28,6 +28,7 @@ router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 # Request/Response Models
 class PipelineStartRequest(BaseModel):
     """Request to start a pipeline"""
+    client_id: Optional[str] = Field(None, description="Client ID for data isolation (defaults to authenticated user)")
     keywords: Optional[List[str]] = Field(None, description="Specific keywords to process (null = all)")
     regions: List[str] = Field(["US", "UK"], description="Regions to collect data for")
     content_types: List[str] = Field(["organic", "news", "video"], description="Content types to collect")
@@ -38,10 +39,12 @@ class PipelineStartRequest(BaseModel):
     max_concurrent_analysis: int = Field(20, ge=1, le=50)
     
     # Feature flags
+    enable_keyword_metrics: bool = Field(True, description="Fetch Google Ads historical metrics for all keywords across selected countries")
     enable_company_enrichment: bool = True
     enable_video_enrichment: bool = True
     enable_content_analysis: bool = True
     enable_historical_tracking: bool = True
+    enable_landscape_dsi: bool = Field(True, description="Calculate DSI metrics for all active digital landscapes")
     force_refresh: bool = Field(False, description="Force refresh of existing data")
     
     # Mode
@@ -64,10 +67,12 @@ class PipelineStatusResponse(BaseModel):
     
     # Statistics
     keywords_processed: int = 0
+    keywords_with_metrics: int = 0
     serp_results_collected: int = 0
     companies_enriched: int = 0
     videos_enriched: int = 0
     content_analyzed: int = 0
+    landscapes_calculated: int = 0
     
     # Errors
     errors: List[str] = []

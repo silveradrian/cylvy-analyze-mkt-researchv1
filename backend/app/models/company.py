@@ -26,6 +26,7 @@ class CompanyProfile(BaseModel):
     sub_industry: Optional[str] = Field(None, description="Sub-industry")
     sic_code: Optional[str] = Field(None, description="SIC code")
     naics_code: Optional[str] = Field(None, description="NAICS code")
+    source_type: Optional[str] = Field(None, description="Content source classification (OWNED, COMPETITOR, TECHNOLOGY, etc.)")
     
     # Financial Information
     revenue_amount: Optional[float] = Field(None, description="Annual revenue amount")

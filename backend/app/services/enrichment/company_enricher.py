@@ -22,7 +22,7 @@ class CompanyEnricher:
     def __init__(self, settings: Settings, db: DatabasePool):
         self.settings = settings
         self.db = db
-        self.api_key = settings.cognism_api_key
+        self.api_key = settings.COGNISM_API_KEY
         
         # Workaround for API key parsing issue
         if self.api_key and self.api_key.startswith("PI-P-"):
@@ -69,6 +69,10 @@ class CompanyEnricher:
         if company_data:
             # Enrich with additional data
             enriched = await self._enrich_company_data(company_data)
+            
+            # Classify source type based on company data
+            source_type = await self._classify_source_type(enriched, domain)
+            enriched.source_type = source_type
             
             # Cache result
             await self._cache_result(domain, enriched)
@@ -447,6 +451,183 @@ class CompanyEnricher:
         
         return round(base_score, 2)
     
+    async def _classify_source_type(self, company_profile: CompanyProfile, domain: str) -> str:
+        """Classify source type using AI analysis of all Cognism data"""
+        try:
+            # Get client and competitor domains from database
+            client_domains = await self._get_client_domains()
+            competitor_domains = await self._get_competitor_domains()
+            
+            # Direct classification for known categories
+            if domain in client_domains:
+                return "OWNED"
+            elif domain in competitor_domains:
+                return "COMPETITOR"
+            
+            # Prepare all Cognism data for AI analysis
+            company_data = {
+                "domain": company_profile.domain,
+                "company_name": company_profile.company_name,
+                "industry": company_profile.industry,
+                "sub_industry": company_profile.sub_industry,
+                "company_type": company_profile.company_type,
+                "description": company_profile.description,
+                "headcount": company_profile.headcount,
+                "employee_range": company_profile.employee_range,
+                "revenue_amount": company_profile.revenue_amount,
+                "revenue_range": company_profile.revenue_range,
+                "founded_year": company_profile.founded_year,
+                "website": company_profile.website,
+                "technologies": company_profile.technologies
+            }
+            
+            # Build AI prompt with all available data
+            data_summary = []
+            for key, value in company_data.items():
+                if value is not None and value != [] and value != "":
+                    if isinstance(value, list):
+                        data_summary.append(f"- {key.replace('_', ' ').title()}: {', '.join(map(str, value))}")
+                    else:
+                        data_summary.append(f"- {key.replace('_', ' ').title()}: {value}")
+            
+            cognism_data_text = "\n".join(data_summary) if data_summary else "Limited company data available"
+            
+            prompt = f"""Analyze this company data from Cognism and classify the content source type.
+            
+COMPANY DATA:
+{cognism_data_text}
+
+CLASSIFICATION OPTIONS:
+- TECHNOLOGY: Software companies, SaaS providers, tech vendors, platforms
+- FINANCE: Banks, financial institutions, payment processors, lending companies  
+- PREMIUM_PUBLISHER: Media companies, news outlets, research firms, analysts
+- PROFESSIONAL_BODY: Industry associations, institutes, councils, standards bodies
+- EDUCATION: Universities, academic institutions, research organizations
+- GOVERNMENT: Government agencies, public sector, regulatory bodies
+- NON_PROFIT: Non-profit organizations, foundations, charities
+- SOCIAL_MEDIA: Social media platforms, community sites
+- OTHER: Companies that don't clearly fit other categories
+
+CLASSIFICATION CRITERIA:
+- Use the industry and sub_industry fields as primary indicators
+- Consider company type, description, and employee count for context
+- Look for keywords that indicate the company's primary business model
+- Choose the MOST SPECIFIC category that applies
+- Default to OTHER only if no clear category fits
+
+Provide your classification with brief reasoning."""
+
+            # Use OpenAI for intelligent classification
+            if self.settings.OPENAI_API_KEY:
+                import httpx
+                
+                headers = {
+                    'Authorization': f'Bearer {self.settings.OPENAI_API_KEY}',
+                    'Content-Type': 'application/json'
+                }
+                
+                function_schema = {
+                    "name": "classify_company_source",
+                    "description": "Classify company source type based on Cognism data",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "source_type": {
+                                "type": "string",
+                                "enum": ["TECHNOLOGY", "FINANCE", "PREMIUM_PUBLISHER", "PROFESSIONAL_BODY", 
+                                        "EDUCATION", "GOVERNMENT", "NON_PROFIT", "SOCIAL_MEDIA", "OTHER"]
+                            },
+                            "reasoning": {
+                                "type": "string",
+                                "description": "Brief reasoning for the classification"
+                            },
+                            "confidence": {
+                                "type": "number",
+                                "description": "Confidence score from 0.0 to 1.0"
+                            }
+                        },
+                        "required": ["source_type", "reasoning", "confidence"]
+                    }
+                }
+                
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    response = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers=headers,
+                        json={
+                            "model": "gpt-4o-mini",
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": "You are an expert at analyzing company data and classifying content sources for competitive intelligence analysis."
+                                },
+                                {
+                                    "role": "user",
+                                    "content": prompt
+                                }
+                            ],
+                            "tools": [{
+                                "type": "function",
+                                "function": function_schema
+                            }],
+                            "tool_choice": {"type": "function", "function": {"name": "classify_company_source"}},
+                            "temperature": 0.2,
+                            "max_tokens": 300
+                        }
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        tool_calls = result["choices"][0]["message"].get("tool_calls")
+                        
+                        if tool_calls and len(tool_calls) > 0:
+                            classification = json.loads(tool_calls[0]["function"]["arguments"])
+                            logger.info(f"AI classified {domain} as {classification['source_type']} - {classification['reasoning']}")
+                            return classification['source_type']
+            
+            # Fallback to simple rule-based classification if AI fails
+            if company_profile.industry:
+                industry_lower = company_profile.industry.lower()
+                if any(tech in industry_lower for tech in ['software', 'technology', 'saas']):
+                    return "TECHNOLOGY"
+                elif any(fin in industry_lower for fin in ['financial', 'banking', 'finance']):
+                    return "FINANCE"
+            
+            logger.info(f"Fallback classification for {domain}: OTHER")
+            return "OTHER"
+            
+        except Exception as e:
+            logger.error(f"Error in AI source classification for {domain}: {str(e)}")
+            return "OTHER"
+    
+    async def _get_client_domains(self) -> List[str]:
+        """Get client domains from configuration"""
+        try:
+            async with self.db.acquire() as conn:
+                result = await conn.fetchval(
+                    "SELECT company_domain FROM client_config LIMIT 1"
+                )
+                return [result] if result else []
+        except Exception as e:
+            logger.error(f"Error getting client domains: {e}")
+            return []
+    
+    async def _get_competitor_domains(self) -> List[str]:
+        """Get competitor domains from analysis configuration"""
+        try:
+            async with self.db.acquire() as conn:
+                result = await conn.fetchval(
+                    "SELECT competitor_domains FROM analysis_config LIMIT 1"
+                )
+                if result:
+                    import json
+                    domains = json.loads(result) if isinstance(result, str) else result
+                    return domains if isinstance(domains, list) else []
+                return []
+        except Exception as e:
+            logger.error(f"Error getting competitor domains: {e}")
+            return []
+    
     async def _get_from_cache(self, domain: str) -> Optional[CompanyProfile]:
         """Get company data from cache"""
         if self.redis_client:
@@ -572,8 +753,8 @@ class CompanyEnricher:
                     domain, company_name, industry, sub_industry,
                     revenue_amount, revenue_currency, headcount,
                     founded_year, description, technologies,
-                    headquarters_location, source, client_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                    headquarters_location, source, client_id, source_type
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                 ON CONFLICT (domain) DO UPDATE SET
                     company_name = EXCLUDED.company_name,
                     industry = EXCLUDED.industry,
@@ -583,6 +764,7 @@ class CompanyEnricher:
                     description = EXCLUDED.description,
                     technologies = EXCLUDED.technologies,
                     headquarters_location = EXCLUDED.headquarters_location,
+                    source_type = EXCLUDED.source_type,
                     enriched_at = NOW()
                 """,
                 profile.domain,
@@ -597,5 +779,6 @@ class CompanyEnricher:
                 json.dumps(profile.technologies),
                 json.dumps(profile.headquarters_location) if profile.headquarters_location else None,
                 profile.source,
-                client_id
+                client_id,
+                profile.source_type
             )
