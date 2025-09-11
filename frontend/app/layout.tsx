@@ -25,6 +25,15 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
       </head>
       <body className={`${inter.className} antialiased`}>
+        <script dangerouslySetInnerHTML={{
+          __html: `
+            // Auto-set test token for development
+            if (!localStorage.getItem('access_token')) {
+              localStorage.setItem('access_token', 'test-token-for-development');
+              console.log('✅ Test token set for development');
+            }
+          `
+        }} />
         <main className="min-h-screen bg-transparent">
           {children}
         </main>

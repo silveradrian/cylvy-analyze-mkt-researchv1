@@ -86,12 +86,33 @@ class CompanyEnricher:
         """Clean and normalize domain"""
         # Remove protocol
         domain = domain.replace('http://', '').replace('https://', '')
-        # Remove www
-        domain = domain.replace('www.', '')
         # Remove path
         domain = domain.split('/')[0]
+        # Remove port if any
+        domain = domain.split(':')[0]
         # Convert to lowercase
-        return domain.lower()
+        domain = domain.lower()
+        
+        # Extract primary domain (remove all subdomains)
+        parts = domain.split('.')
+        
+        # Handle special cases like co.uk, com.au, etc.
+        if len(parts) >= 3:
+            # Check if it's a known multi-part TLD
+            if len(parts) >= 3 and parts[-2] in ['co', 'com', 'net', 'org', 'gov', 'edu', 'ac']:
+                # Keep last 3 parts (e.g., example.co.uk)
+                primary_domain = '.'.join(parts[-3:])
+            else:
+                # Keep last 2 parts (e.g., example.com)
+                primary_domain = '.'.join(parts[-2:])
+        elif len(parts) == 2:
+            primary_domain = domain
+        else:
+            # Single part domain (shouldn't happen for valid domains)
+            primary_domain = domain
+        
+        logger.debug(f"Cleaned domain: {domain} -> {primary_domain}")
+        return primary_domain
     
     @retry(
         stop=stop_after_attempt(3),
@@ -109,7 +130,7 @@ class CompanyEnricher:
         payload = {
             "domains": [domain],
             "accountSearchOptions": {
-                "match_exact_domain": True,
+                "match_exact_domain": 1,  # Boolean - exact domain match
                 "filter_domain": "exists",
                 "exclude_dataTypes": ["companyHiring", "locations", "officePhoneNumbers", "hqPhoneNumbers", "technologies"]
             }
@@ -454,15 +475,19 @@ class CompanyEnricher:
     async def _classify_source_type(self, company_profile: CompanyProfile, domain: str) -> str:
         """Classify source type using AI analysis of all Cognism data"""
         try:
-            # Get client and competitor domains from database
-            client_domains = await self._get_client_domains()
-            competitor_domains = await self._get_competitor_domains()
+            # Get client and competitor information
+            client_info = await self._get_client_info()
+            client_domains = client_info.get('domains', [])
+            competitors = await self._get_competitor_info()
             
-            # Direct classification for known categories
+            # Direct classification for exact domain matches
             if domain in client_domains:
                 return "OWNED"
-            elif domain in competitor_domains:
-                return "COMPETITOR"
+            
+            # Check if domain matches any competitor domains exactly
+            for comp in competitors:
+                if isinstance(comp, dict) and domain in comp.get('domains', []):
+                    return "COMPETITOR"
             
             # Prepare all Cognism data for AI analysis
             company_data = {
@@ -478,7 +503,8 @@ class CompanyEnricher:
                 "revenue_range": company_profile.revenue_range,
                 "founded_year": company_profile.founded_year,
                 "website": company_profile.website,
-                "technologies": company_profile.technologies
+                "technologies": company_profile.technologies,
+                "headquarters_location": company_profile.headquarters_location
             }
             
             # Build AI prompt with all available data
@@ -487,19 +513,38 @@ class CompanyEnricher:
                 if value is not None and value != [] and value != "":
                     if isinstance(value, list):
                         data_summary.append(f"- {key.replace('_', ' ').title()}: {', '.join(map(str, value))}")
+                    elif isinstance(value, dict):
+                        data_summary.append(f"- {key.replace('_', ' ').title()}: {json.dumps(value)}")
                     else:
                         data_summary.append(f"- {key.replace('_', ' ').title()}: {value}")
             
             cognism_data_text = "\n".join(data_summary) if data_summary else "Limited company data available"
             
+            # Build competitor context
+            competitor_context = []
+            for comp in competitors:
+                if isinstance(comp, dict):
+                    comp_name = comp.get('name', 'Unknown')
+                    comp_domains = ', '.join(comp.get('domains', []))
+                    competitor_context.append(f"- {comp_name}: {comp_domains}")
+            competitor_text = "\n".join(competitor_context) if competitor_context else "No competitors defined"
+            
             prompt = f"""Analyze this company data from Cognism and classify the content source type.
             
-COMPANY DATA:
+CLIENT COMPANY CONTEXT:
+- Name: {client_info.get('name', 'Unknown')}
+- Domains: {', '.join(client_domains)}
+- Description: {client_info.get('description', 'Not provided')[:200]}...
+
+KNOWN COMPETITORS:
+{competitor_text}
+
+COMPANY DATA BEING ANALYZED:
 {cognism_data_text}
 
 CLASSIFICATION OPTIONS:
-- TECHNOLOGY: Software companies, SaaS providers, tech vendors, platforms
-- FINANCE: Banks, financial institutions, payment processors, lending companies  
+- OWNED: A digital property owned by the client company (e.g., subsidiary, acquired company, product brand, or strong evidence of ownership relationship)
+- COMPETITOR: A digital property of a named competitor or a company that is obviously a subsidiary/brand of a named competitor
 - PREMIUM_PUBLISHER: Media companies, news outlets, research firms, analysts
 - PROFESSIONAL_BODY: Industry associations, institutes, councils, standards bodies
 - EDUCATION: Universities, academic institutions, research organizations
@@ -509,13 +554,24 @@ CLASSIFICATION OPTIONS:
 - OTHER: Companies that don't clearly fit other categories
 
 CLASSIFICATION CRITERIA:
-- Use the industry and sub_industry fields as primary indicators
-- Consider company type, description, and employee count for context
-- Look for keywords that indicate the company's primary business model
-- Choose the MOST SPECIFIC category that applies
-- Default to OTHER only if no clear category fits
+1. First check if there's evidence this company is owned by or related to the client:
+   - Look for parent/subsidiary relationships in the description
+   - Check for brand mentions or product names that match the client
+   - Consider if the company name contains parts of the client name
+   - Look for acquisition mentions or ownership indicators
 
-Provide your classification with brief reasoning."""
+2. Then check if there's evidence this company is owned by or related to any known competitor:
+   - Look for parent/subsidiary relationships with competitor names
+   - Check if company name contains parts of competitor names
+   - Look for brand or product associations with competitors
+   - Consider acquisition or merger mentions with competitors
+
+3. If neither OWNED nor COMPETITOR applies, classify based on the company's primary business:
+   - Use industry and description as primary indicators
+   - Consider company type and business model
+   - Choose the MOST SPECIFIC category that applies
+
+Return only the classification without any reasoning or explanation."""
 
             # Use OpenAI for intelligent classification
             if self.settings.OPENAI_API_KEY:
@@ -534,29 +590,21 @@ Provide your classification with brief reasoning."""
                         "properties": {
                             "source_type": {
                                 "type": "string",
-                                "enum": ["TECHNOLOGY", "FINANCE", "PREMIUM_PUBLISHER", "PROFESSIONAL_BODY", 
+                                "enum": ["OWNED", "COMPETITOR", "PREMIUM_PUBLISHER", "PROFESSIONAL_BODY", 
                                         "EDUCATION", "GOVERNMENT", "NON_PROFIT", "SOCIAL_MEDIA", "OTHER"]
-                            },
-                            "reasoning": {
-                                "type": "string",
-                                "description": "Brief reasoning for the classification"
-                            },
-                            "confidence": {
-                                "type": "number",
-                                "description": "Confidence score from 0.0 to 1.0"
                             }
                         },
-                        "required": ["source_type", "reasoning", "confidence"]
+                        "required": ["source_type"]
                     }
                 }
                 
                 async with httpx.AsyncClient(timeout=15.0) as client:
                     response = await client.post(
-                        "https://api.openai.com/v1/chat/completions",
+                        "https://api.openai.com/v1/responses",
                         headers=headers,
                         json={
-                            "model": "gpt-4o-mini",
-                            "messages": [
+                            "model": "gpt-4.1",
+                            "input": [
                                 {
                                     "role": "system",
                                     "content": "You are an expert at analyzing company data and classifying content sources for competitive intelligence analysis."
@@ -566,32 +614,64 @@ Provide your classification with brief reasoning."""
                                     "content": prompt
                                 }
                             ],
-                            "tools": [{
-                                "type": "function",
-                                "function": function_schema
-                            }],
-                            "tool_choice": {"type": "function", "function": {"name": "classify_company_source"}},
-                            "temperature": 0.2,
-                            "max_tokens": 300
+                            "tools": [
+                                {
+                                    "type": "function",
+                                    "name": "classify_company_source",
+                                    "description": "Classify company source type based on Cognism data",
+                                    "parameters": function_schema["parameters"]
+                                }
+                            ]
                         }
                     )
                     
                     if response.status_code == 200:
                         result = response.json()
-                        tool_calls = result["choices"][0]["message"].get("tool_calls")
-                        
-                        if tool_calls and len(tool_calls) > 0:
-                            classification = json.loads(tool_calls[0]["function"]["arguments"])
-                            logger.info(f"AI classified {domain} as {classification['source_type']} - {classification['reasoning']}")
-                            return classification['source_type']
+                        # Extract result from the new API format
+                        if result.get("choices") and len(result["choices"]) > 0:
+                            choice = result["choices"][0]
+                            if choice.get("message") and choice["message"].get("tool_calls"):
+                                tool_call = choice["message"]["tool_calls"][0]
+                                if tool_call.get("function") and tool_call["function"].get("arguments"):
+                                    classification = json.loads(tool_call["function"]["arguments"])
+                                    source_type = classification.get('source_type', 'OTHER')
+                                    
+                                    # Simple logging without reasoning
+                                    logger.info(f"AI classified {domain} as {source_type}")
+                                    
+                                    return source_type
             
             # Fallback to simple rule-based classification if AI fails
+            # Check for name-based ownership relationships
+            company_name_lower = company_profile.company_name.lower() if company_profile.company_name else ""
+            client_name_lower = client_info.get('name', '').lower()
+            
+            # Check if company name contains client name (potential subsidiary)
+            if client_name_lower and len(client_name_lower) > 3:  # Avoid false positives with short names
+                if client_name_lower in company_name_lower:
+                    logger.info(f"Fallback: {domain} classified as OWNED due to name match")
+                    return "OWNED"
+            
+            # Check if company name matches any competitor names
+            for comp in competitors:
+                if isinstance(comp, dict):
+                    comp_name_lower = comp.get('name', '').lower()
+                    if comp_name_lower and len(comp_name_lower) > 3:
+                        if comp_name_lower in company_name_lower:
+                            logger.info(f"Fallback: {domain} classified as COMPETITOR due to name match with {comp.get('name')}")
+                            return "COMPETITOR"
+            
+            # Industry-based classification
             if company_profile.industry:
                 industry_lower = company_profile.industry.lower()
-                if any(tech in industry_lower for tech in ['software', 'technology', 'saas']):
-                    return "TECHNOLOGY"
-                elif any(fin in industry_lower for fin in ['financial', 'banking', 'finance']):
-                    return "FINANCE"
+                if any(pub in industry_lower for pub in ['media', 'publishing', 'news', 'journal']):
+                    return "PREMIUM_PUBLISHER"
+                elif any(edu in industry_lower for edu in ['education', 'university', 'academic']):
+                    return "EDUCATION"
+                elif any(gov in industry_lower for gov in ['government', 'public sector']):
+                    return "GOVERNMENT"
+                elif any(npo in industry_lower for npo in ['non-profit', 'nonprofit', 'charity']):
+                    return "NON_PROFIT"
             
             logger.info(f"Fallback classification for {domain}: OTHER")
             return "OTHER"
@@ -600,33 +680,58 @@ Provide your classification with brief reasoning."""
             logger.error(f"Error in AI source classification for {domain}: {str(e)}")
             return "OTHER"
     
-    async def _get_client_domains(self) -> List[str]:
-        """Get client domains from configuration"""
+    async def _get_client_info(self) -> Dict[str, Any]:
+        """Get client company information including all domains"""
         try:
             async with self.db.acquire() as conn:
-                result = await conn.fetchval(
-                    "SELECT company_domain FROM client_config LIMIT 1"
-                )
-                return [result] if result else []
-        except Exception as e:
-            logger.error(f"Error getting client domains: {e}")
-            return []
-    
-    async def _get_competitor_domains(self) -> List[str]:
-        """Get competitor domains from analysis configuration"""
-        try:
-            async with self.db.acquire() as conn:
-                result = await conn.fetchval(
-                    "SELECT competitor_domains FROM analysis_config LIMIT 1"
+                result = await conn.fetchrow(
+                    """
+                    SELECT company_name, company_domain, additional_domains, description
+                    FROM client_config 
+                    LIMIT 1
+                    """
                 )
                 if result:
-                    import json
-                    domains = json.loads(result) if isinstance(result, str) else result
-                    return domains if isinstance(domains, list) else []
+                    domains = [result['company_domain']]
+                    if result['additional_domains']:
+                        domains.extend(result['additional_domains'])
+                    return {
+                        'name': result['company_name'],
+                        'domains': domains,
+                        'description': result['description']
+                    }
+                return {'name': '', 'domains': [], 'description': ''}
+        except Exception as e:
+            logger.error(f"Error getting client info: {e}")
+            return {'name': '', 'domains': [], 'description': ''}
+    
+    async def _get_competitor_info(self) -> List[Dict[str, Any]]:
+        """Get competitor information including names and domains"""
+        try:
+            async with self.db.acquire() as conn:
+                result = await conn.fetchval(
+                    "SELECT competitors FROM client_config LIMIT 1"
+                )
+                if result:
+                    return result if isinstance(result, list) else []
                 return []
         except Exception as e:
-            logger.error(f"Error getting competitor domains: {e}")
+            logger.error(f"Error getting competitor info: {e}")
             return []
+    
+    async def _get_client_domains(self) -> List[str]:
+        """Get all client domains (for backward compatibility)"""
+        client_info = await self._get_client_info()
+        return client_info.get('domains', [])
+    
+    async def _get_competitor_domains(self) -> List[str]:
+        """Get all competitor domains (for backward compatibility)"""
+        competitors = await self._get_competitor_info()
+        domains = []
+        for comp in competitors:
+            if isinstance(comp, dict) and 'domains' in comp:
+                domains.extend(comp.get('domains', []))
+        return domains
     
     async def _get_from_cache(self, domain: str) -> Optional[CompanyProfile]:
         """Get company data from cache"""

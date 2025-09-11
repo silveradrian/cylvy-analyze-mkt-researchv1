@@ -13,7 +13,11 @@ import {
   Menu,
   X,
   ChevronRight,
-  Globe
+  Globe,
+  Layers,
+  Activity,
+  Monitor,
+  Calendar
 } from 'lucide-react'
 
 interface AdminLayoutProps {
@@ -27,37 +31,63 @@ const navigationItems = [
     name: 'Dashboard', 
     href: '/', 
     icon: Home,
-    description: 'Overview and quick actions'
+    description: 'Overview and setup status'
   },
+  // Configuration Section
   { 
-    name: 'Setup Wizard', 
-    href: '/setup', 
+    name: 'Company Profile', 
+    href: '/setup?step=company', 
     icon: Settings,
-    description: 'Client configuration'
+    description: 'Company configuration'
   },
   { 
-    name: 'Pipeline Management', 
+    name: 'Buyer Personas', 
+    href: '/setup?step=personas', 
+    icon: Users,
+    description: 'Target audience profiles'
+  },
+  { 
+    name: 'Keywords', 
+    href: '/setup?step=countries', 
+    icon: Target,
+    description: 'Countries & Keywords'
+  },
+  { 
+    name: 'Analysis Settings', 
+    href: '/setup?step=analysis', 
+    icon: Settings,
+    description: 'Configure analysis'
+  },
+  // Operations Section
+  { 
+    name: 'Pipeline', 
     href: '/pipeline', 
     icon: BarChart3,
-    description: 'Monitor analysis runs'
+    description: 'Run and monitor analysis'
+  },
+  { 
+    name: 'Pipeline Schedules', 
+    href: '/pipeline-schedules', 
+    icon: Calendar,
+    description: 'Configure schedules'
   },
   { 
     name: 'Digital Landscapes', 
     href: '/landscapes', 
     icon: Globe,
-    description: 'Manage market segments & DSI views'
+    description: 'DSI market views'
   },
   { 
     name: 'Custom Dimensions', 
     href: '/dimensions', 
-    icon: Target,
-    description: 'Analysis dimensions & scoring'
+    icon: Layers,
+    description: 'Analysis dimensions'
   },
   { 
-    name: 'Advanced Settings', 
-    href: '/settings', 
-    icon: Users,
-    description: 'JTBD phases & source types'
+    name: 'Monitoring', 
+    href: '/monitoring', 
+    icon: Monitor,
+    description: 'System health'
   }
 ]
 

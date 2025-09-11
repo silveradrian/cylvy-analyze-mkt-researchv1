@@ -7,9 +7,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel, Field
+from loguru import logger
 
 from app.core.auth import get_current_user
 from app.models.user import User
+from app.core.database import db_pool
 from app.services.pipeline.pipeline_service import (
     PipelineService, PipelineConfig, PipelineMode, 
     PipelineResult, PipelineStatus
@@ -46,6 +48,11 @@ class PipelineStartRequest(BaseModel):
     enable_historical_tracking: bool = True
     enable_landscape_dsi: bool = Field(True, description="Calculate DSI metrics for all active digital landscapes")
     force_refresh: bool = Field(False, description="Force refresh of existing data")
+    
+    # Testing mode configuration
+    testing_mode: bool = Field(False, description="Enable testing mode to force full pipeline run")
+    testing_batch_size: Optional[int] = Field(None, ge=1, le=100, description="Limit keyword batch size for testing")
+    testing_skip_delays: bool = Field(False, description="Skip rate limiting delays in testing mode")
     
     # Mode
     mode: PipelineMode = PipelineMode.MANUAL
@@ -154,6 +161,17 @@ async def start_pipeline(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        # Get active schedule to use its configuration
+        async with db_pool.acquire() as conn:
+            schedule_data = await conn.fetchrow(
+                """
+                SELECT id, content_schedules, regions
+                FROM pipeline_schedules 
+                WHERE is_active = true
+                LIMIT 1
+                """
+            )
+        
         # Create pipeline config
         config = PipelineConfig(
             keywords=request.keywords,
@@ -166,7 +184,8 @@ async def start_pipeline(
             enable_video_enrichment=request.enable_video_enrichment,
             enable_content_analysis=request.enable_content_analysis,
             enable_historical_tracking=request.enable_historical_tracking,
-            force_refresh=request.force_refresh
+            force_refresh=request.force_refresh,
+            schedule_id=schedule_data['id'] if schedule_data else None
         )
         
         # Start pipeline
@@ -270,6 +289,10 @@ async def get_recent_pipelines(
                 "mode": p.mode,
                 "started_at": p.started_at,
                 "completed_at": p.completed_at,
+                "content_types": p.content_types,
+                "regions": p.regions,
+                "current_phase": p.current_phase,
+                "phases_completed": p.phases_completed,
                 "keywords_processed": p.keywords_processed,
                 "serp_results_collected": p.serp_results_collected,
                 "content_analyzed": p.content_analyzed,
@@ -453,6 +476,106 @@ async def get_page_lifecycle(
     """Get page lifecycle analysis"""
     lifecycle_data = await historical_svc.get_page_lifecycle_data(status, domain)
     return {"pages": [dict(page) for page in lifecycle_data]}
+
+
+@router.delete("/clear-all")
+async def clear_all_pipelines(
+    current_user: User = Depends(get_current_user),
+    pipeline_svc: PipelineService = Depends(get_pipeline_service)
+):
+    """Clear all pipeline execution history"""
+    if current_user.role not in ["admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    try:
+        count = await pipeline_svc.clear_all_pipelines()
+        return {
+            "message": f"Successfully cleared {count} pipeline executions",
+            "count": count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear pipelines: {str(e)}")
+
+
+class TestModeRequest(BaseModel):
+    batch_size: int = 5
+    skip_delays: bool = True
+    regions: List[str] = ["US"]
+    content_types: List[str] = ["organic", "news", "video"]
+
+
+@router.post("/test-mode")
+async def start_testing_pipeline(
+    request: TestModeRequest,
+    current_user: User = Depends(get_current_user),
+    pipeline_svc: PipelineService = Depends(get_pipeline_service),
+    scheduling_svc: SchedulingService = Depends(get_scheduling_service)
+):
+    """Start a pipeline in testing mode with limited batch size for rapid testing"""
+    if current_user.role not in ["admin", "superadmin", "developer"]:
+        raise HTTPException(status_code=403, detail="Testing mode requires admin/developer access")
+    
+    try:
+        # Get regions from active schedule if available
+        try:
+            schedules = await scheduling_svc.get_all_schedules(active_only=True)
+            regions = request.regions  # Default to request regions
+            
+            if schedules and len(schedules) > 0:
+                # Use regions from the first active schedule
+                regions = schedules[0].regions
+                logger.info(f"Using regions from active schedule: {regions}")
+            else:
+                logger.info(f"No active schedule found, using default regions: {regions}")
+        except Exception as e:
+            logger.error(f"Error getting schedules: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
+        
+        # Get the schedule_id from active schedule if available
+        schedule_id = None
+        if schedules and len(schedules) > 0:
+            schedule_id = schedules[0].id
+            logger.info(f"Using schedule_id from active schedule: {schedule_id}")
+        
+        # Create testing mode config
+        config = PipelineConfig(
+            client_id=f"test_{current_user.id}",
+            testing_mode=True,
+            testing_batch_size=request.batch_size,
+            testing_skip_delays=request.skip_delays,
+            regions=regions,
+            content_types=request.content_types,
+            schedule_id=schedule_id,  # Include schedule_id for proper scheduling
+            # Force all phases to run
+            enable_keyword_metrics=True,
+            enable_company_enrichment=True,
+            enable_video_enrichment=True,
+            enable_content_analysis=True,
+            enable_historical_tracking=True,
+            enable_landscape_dsi=True,
+            force_refresh=True
+        )
+        
+        # Start pipeline
+        pipeline_id = await pipeline_svc.start_pipeline(config, PipelineMode.TESTING)
+        
+        return {
+            "pipeline_id": pipeline_id,
+            "mode": "testing",
+            "message": f"Testing pipeline started with {request.batch_size} keywords",
+            "config": {
+                "batch_size": request.batch_size,
+                "skip_delays": request.skip_delays,
+                "regions": request.regions,
+                "content_types": request.content_types
+            }
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start testing pipeline: {str(e)}")
 
 
 @router.get("/trending")

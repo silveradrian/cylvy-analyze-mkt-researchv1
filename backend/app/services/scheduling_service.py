@@ -23,6 +23,7 @@ class ScheduleFrequency(str, Enum):
     DAILY = "daily"
     WEEKLY = "weekly" 
     MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
     CUSTOM_CRON = "custom_cron"
 
 
@@ -334,15 +335,23 @@ class SchedulingService:
             # Save execution record
             await self._save_execution(execution)
             
-            # Create pipeline config
+            # Check if this is the first run for this schedule
+            is_initial_run = schedule.last_executed_at is None
+            
+            # Create pipeline config with robustness features
             config = PipelineConfig(
                 keywords=schedule.keywords,
                 regions=schedule.regions,
                 content_types=content_types,
-                schedule_id=schedule.id
+                schedule_id=schedule.id,
+                is_initial_run=is_initial_run,
+                scheduled_for=scheduled_for,
+                # Enable robust execution for scheduled runs
+                force_refresh=True,  # Always refresh data for scheduled runs
+                enable_historical_tracking=True
             )
             
-            # Start pipeline
+            # Start pipeline with robust orchestration
             pipeline_id = await self.pipeline_service.start_pipeline(
                 config, 
                 mode=PipelineMode.SCHEDULED
@@ -468,6 +477,30 @@ class SchedulingService:
                             next_time = next_time.replace(year=next_time.year + 1, month=1)
                         else:
                             next_time = next_time.replace(month=next_time.month + 1)
+                    
+                    next_times.append(next_time)
+            
+            elif cs.frequency == ScheduleFrequency.QUARTERLY:
+                # Quarterly execution (every 3 months)
+                if cs.day_of_month:
+                    target_day = cs.day_of_month if cs.day_of_month > 0 else 1
+                    
+                    next_time = now.replace(
+                        day=min(target_day, 28),  # Safe day
+                        hour=cs.time_of_day.hour,
+                        minute=cs.time_of_day.minute,
+                        second=0,
+                        microsecond=0
+                    )
+                    
+                    if next_time <= now:
+                        # Next quarter (add 3 months)
+                        month = next_time.month + 3
+                        year = next_time.year
+                        if month > 12:
+                            month = month - 12
+                            year = year + 1
+                        next_time = next_time.replace(year=year, month=month)
                     
                     next_times.append(next_time)
             
@@ -613,10 +646,14 @@ class SchedulingService:
             ContentTypeSchedule(**cs_data) for cs_data in content_schedules_data
         ]
         
-        if data['keywords']:
-            data['keywords'] = json.loads(data['keywords'])
+        # Handle keywords from keywords_set and custom_keywords columns
+        if data.get('custom_keywords'):
+            data['keywords'] = json.loads(data['custom_keywords'])
+        else:
+            data['keywords'] = None
         
-        data['regions'] = json.loads(data['regions'] or '["US", "UK"]')
+        # Regions is already an array from the database, no need to parse JSON
+        data['regions'] = data['regions'] or ["US", "UK"]
         
         if data['notification_emails']:
             data['notification_emails'] = json.loads(data['notification_emails'])

@@ -136,10 +136,11 @@ class ProductionLandscapeCalculator:
                 ),
                 market_totals AS (
                     SELECT 
-                        COUNT(DISTINCT keyword_id) as market_keywords,
-                        SUM(total_traffic) as market_traffic,
-                        COUNT(*) as total_companies
-                    FROM company_aggregates
+                        COUNT(DISTINCT ls.keyword_id) as market_keywords,
+                        SUM(ca.total_traffic) as market_traffic,
+                        COUNT(DISTINCT ca.company_id) as total_companies
+                    FROM landscape_serp ls
+                    JOIN company_aggregates ca ON ls.domain = ca.domain
                 )
                 SELECT 
                     ca.*,

@@ -13,6 +13,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings, Settings
 from app.core.database import DatabasePool
+from app.services.scraping.document_parser import DocumentParser
 
 
 class WebScraper:
@@ -23,6 +24,7 @@ class WebScraper:
         self.db = db
         self.scrapingbee_api_key = settings.SCRAPINGBEE_API_KEY
         self.redis_client = None
+        self.document_parser = DocumentParser()
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         }
@@ -37,6 +39,8 @@ class WebScraper:
             'wsj.com',
             'x.com'
         }
+        # Document file extensions
+        self.document_extensions = {'.pdf', '.docx', '.doc'}
     
     async def scrape(
         self,
@@ -45,7 +49,12 @@ class WebScraper:
         check_cache: bool = True,
         force_scrapingbee: bool = False
     ) -> Dict:
-        """Scrape content from a URL"""
+        """Scrape content from a URL or document"""
+        
+        # Check if URL points to a document
+        if self._is_document_url(url):
+            logger.info(f"Detected document URL: {url}")
+            return await self._scrape_document(url)
         
         # Check cache first
         if check_cache and self.redis_client:
@@ -55,13 +64,16 @@ class WebScraper:
                 return cached
         
         # Check if ScrapingBee-only mode is enabled
-        if self.settings.scrapingbee_only and self.settings.scrapingbee_enabled and self.scrapingbee_api_key:
+        scrapingbee_only = getattr(self.settings, 'scrapingbee_only', False)
+        scrapingbee_enabled = getattr(self.settings, 'scrapingbee_enabled', True)
+        
+        if scrapingbee_only and scrapingbee_enabled and self.scrapingbee_api_key:
             logger.info(f"Scraping {url} with ScrapingBee (scrapingbee_only mode)")
             result = await self._scrape_with_scrapingbee(url)
         elif force_scrapingbee and self.scrapingbee_api_key:
             logger.info(f"Scraping {url} with ScrapingBee (forced)")
             result = await self._scrape_with_scrapingbee(url, use_javascript=use_javascript)
-        elif (use_javascript or force_scrapingbee or self._requires_javascript(url)) and self.settings.scrapingbee_enabled and self.scrapingbee_api_key:
+        elif (use_javascript or force_scrapingbee or self._requires_javascript(url)) and scrapingbee_enabled and self.scrapingbee_api_key:
             logger.info(f"Scraping {url} with ScrapingBee (JS rendering)")
             result = await self._scrape_with_scrapingbee(url, use_javascript=True)
         else:
@@ -362,6 +374,96 @@ class WebScraper:
         """Determine if URL requires JavaScript rendering"""
         domain = urlparse(url).netloc.lower()
         return any(js_domain in domain for js_domain in self.js_domains)
+    
+    def _is_document_url(self, url: str) -> bool:
+        """Check if URL points to a document file"""
+        parsed_url = urlparse(url)
+        path = parsed_url.path.lower()
+        
+        # Check file extension
+        for ext in self.document_extensions:
+            if path.endswith(ext):
+                return True
+        
+        # Check content-type if we can do a HEAD request
+        # (This is done in _scrape_document to avoid extra requests)
+        return False
+    
+    async def _scrape_document(self, url: str) -> Dict:
+        """Scrape content from a document (PDF, Word, etc.)"""
+        try:
+            # First check if it's actually a document with HEAD request
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                head_response = await client.head(url, headers=self.headers, follow_redirects=True)
+                content_type = head_response.headers.get('content-type', '').lower()
+                
+                # If not a document, fall back to regular scraping
+                if not any(doc_type in content_type for doc_type in ['pdf', 'document', 'msword', 'wordprocessingml']):
+                    # Check file extension as fallback
+                    if not self._is_document_url(url):
+                        logger.info(f"URL {url} is not a document, falling back to regular scraping")
+                        return await self._scrape_direct(url)
+            
+            # Parse the document
+            result = await self.document_parser.parse_document_from_url(url)
+            
+            # Transform result to match expected scraping format
+            if result.get('error'):
+                return {
+                    "url": url,
+                    "final_url": url,
+                    "status_code": 500,
+                    "title": f"Document: {url.split('/')[-1]}",
+                    "meta_description": "",
+                    "content": "",
+                    "word_count": 0,
+                    "content_type": result.get('document_type', 'document'),
+                    "scraped_at": datetime.utcnow().isoformat(),
+                    "engine": "document_parser",
+                    "metadata": {},
+                    "error": result.get('error')
+                }
+            
+            # Success case
+            content = result.get('content', '')
+            filename = url.split('/')[-1]
+            
+            return {
+                "url": url,
+                "final_url": url,
+                "status_code": 200,
+                "title": f"Document: {filename}",
+                "meta_description": f"{result.get('document_type', 'document').upper()} document with {result.get('word_count', 0)} words",
+                "content": content,
+                "word_count": result.get('word_count', 0),
+                "content_type": result.get('document_type', 'document'),
+                "scraped_at": datetime.utcnow().isoformat(),
+                "engine": "document_parser",
+                "metadata": {
+                    "page_count": result.get('page_count', 0),
+                    "paragraph_count": result.get('paragraph_count', 0),
+                    "table_count": result.get('table_count', 0),
+                    "document_type": result.get('document_type', 'unknown')
+                },
+                "error": None
+            }
+            
+        except Exception as e:
+            logger.error(f"Error scraping document {url}: {e}")
+            return {
+                "url": url,
+                "final_url": url,
+                "status_code": 500,
+                "title": f"Document: {url.split('/')[-1]}",
+                "meta_description": "",
+                "content": "",
+                "word_count": 0,
+                "content_type": "document",
+                "scraped_at": datetime.utcnow().isoformat(),
+                "engine": "document_parser",
+                "metadata": {},
+                "error": str(e)
+            }
     
     def _get_cache_key(self, url: str) -> str:
         """Generate cache key for URL"""

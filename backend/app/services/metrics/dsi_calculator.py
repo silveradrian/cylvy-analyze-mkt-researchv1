@@ -121,7 +121,7 @@ class DSICalculator:
                     c.company_name as company_name,
                     c.id as company_id,
                     COUNT(DISTINCT s.keyword_id) as total_keywords,
-                    SUM(s.estimated_traffic) as total_traffic,
+                    SUM(CASE WHEN s.position <= 3 THEN 5000 WHEN s.position <= 10 THEN 1000 ELSE 100 END) as total_traffic,
                     COUNT(DISTINCT s.url) as total_pages,
                     AVG(ca.jtbd_alignment_score) as avg_relevance,
                     AVG(CASE 
@@ -133,7 +133,7 @@ class DSICalculator:
                     END) as avg_funnel_value
                 FROM serp_results s
                 JOIN company_profiles c ON s.domain = c.domain
-                LEFT JOIN content_analysis ca ON s.url = ca.url AND ca.client_id = $1
+                LEFT JOIN content_analysis ca ON s.url = ca.url
                 WHERE s.client_id = $1
                     AND s.search_date >= $2::date
                     AND s.search_date <= $3::date
@@ -224,7 +224,7 @@ class DSICalculator:
                     s.title,
                     ca.content_classification as content_type,
                     COUNT(DISTINCT s.keyword_id) as keyword_count,
-                    SUM(s.estimated_traffic) as estimated_traffic,
+                    SUM(CASE WHEN s.position <= 3 THEN 5000 WHEN s.position <= 10 THEN 1000 ELSE 100 END) as estimated_traffic,
                     AVG(ca.jtbd_alignment_score) as relevance_score,
                     CASE 
                         WHEN ca.content_classification = 'BUY' THEN 1.0
@@ -234,7 +234,7 @@ class DSICalculator:
                         ELSE 0.2
                     END as funnel_value
                 FROM serp_results s
-                LEFT JOIN content_analysis ca ON s.url = ca.url AND ca.client_id = $1
+                LEFT JOIN content_analysis ca ON s.url = ca.url
                 WHERE s.client_id = $1
                     AND s.domain = $2
                     AND s.search_date >= $3::date
@@ -307,7 +307,7 @@ class DSICalculator:
                     AVG(ca.persona_alignment_scores::json->>'IT Director') as avg_persona_relevance
                 FROM serp_results s
                 JOIN company_profiles c ON s.domain = c.domain
-                LEFT JOIN content_analysis ca ON s.url = ca.url AND ca.client_id = $1
+                LEFT JOIN content_analysis ca ON s.url = ca.url
                 WHERE s.client_id = $1
                     AND s.search_date >= $2::date
                     AND s.search_date <= $3::date
@@ -452,12 +452,12 @@ class DSICalculator:
         query = """
             SELECT 
                 COUNT(DISTINCT s.keyword_id) as total_keywords,
-                SUM(s.estimated_traffic) as total_traffic,
+                SUM(CASE WHEN s.position <= 3 THEN 5000 WHEN s.position <= 10 THEN 1000 ELSE 100 END) as total_traffic,
                 COUNT(DISTINCT s.domain) as total_companies,
                 COUNT(DISTINCT s.url) as total_pages,
                 AVG(ca.jtbd_alignment_score) as avg_relevance
             FROM serp_results s
-            LEFT JOIN content_analysis ca ON s.url = ca.url AND ca.client_id = $1
+            LEFT JOIN content_analysis ca ON s.url = ca.url
             WHERE s.client_id = $1
                 AND s.search_date >= $2
                 AND s.search_date <= $3

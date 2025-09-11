@@ -23,7 +23,7 @@ from app.models.generic_dimensions import (
     EvidenceAnalysis,
     ScoringBreakdown
 )
-from app.services.analysis.generic_content_analyzer import GenericContentAnalyzer
+# from app.services.analysis.generic_content_analyzer import GenericContentAnalyzer  # Moved to redundant
 from app.services.scraping.web_scraper import WebScraper
 from loguru import logger
 
@@ -55,7 +55,11 @@ async def analyze_content_generic_dimensions(
         logger.info(f"Starting generic dimension analysis for client {analysis_request.client_id}")
         
         # Initialize services
-        analyzer = GenericContentAnalyzer()
+        # analyzer = GenericContentAnalyzer()  # Service moved to redundant - endpoint temporarily disabled
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Generic analysis endpoint is temporarily disabled during refactoring"
+        )
         scraper = WebScraper()
         
         # Get client dimensions

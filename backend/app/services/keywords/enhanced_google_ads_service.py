@@ -94,17 +94,31 @@ class EnhancedGoogleAdsService:
             return
             
         try:
-            # Initialize Google Ads client
-            self.client = GoogleAdsClient.load_from_storage()
+            # Initialize Google Ads client from environment variables
+            # Use exact same config as the working direct test
+            config = {
+                "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                "client_id": settings.GOOGLE_ADS_CLIENT_ID,
+                "client_secret": settings.GOOGLE_ADS_CLIENT_SECRET,
+                "refresh_token": settings.GOOGLE_ADS_REFRESH_TOKEN,
+                "login_customer_id": settings.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+                "use_proto_plus": True
+            }
             
-            if hasattr(settings, 'GOOGLE_ADS_CUSTOMER_ID') and settings.GOOGLE_ADS_CUSTOMER_ID:
-                self.customer_id = settings.GOOGLE_ADS_CUSTOMER_ID
-            else:
-                # Try to get customer ID from client
-                customer_service = self.client.get_service("CustomerService")
-                customers = customer_service.list_accessible_customers()
-                if customers.resource_names:
-                    self.customer_id = customers.resource_names[0].split('/')[-1]
+            # Check if all required config values are present
+            required_fields = ["developer_token", "client_id", "client_secret", "refresh_token"]
+            missing_fields = [field for field in required_fields if not config.get(field)]
+            
+            if missing_fields:
+                logger.error(f"Missing required Google Ads configuration: {missing_fields}")
+                self._initialized = False
+                return
+            
+            # Create client from config  
+            self.client = GoogleAdsClient.load_from_dict(config)
+            
+            # Use exact same customer ID logic as the working direct test
+            self.customer_id = settings.GOOGLE_ADS_CUSTOMER_ID or settings.GOOGLE_ADS_LOGIN_CUSTOMER_ID
             
             if self.customer_id:
                 self._initialized = True
@@ -215,52 +229,86 @@ class EnhancedGoogleAdsService:
         
         try:
             # Use Keyword Plan Service for historical data
-            keyword_plan_service = self.client.get_service("KeywordPlanService")
+            # Get keyword plan idea service (for newer API versions)
+            keyword_plan_idea_service = self.client.get_service("KeywordPlanIdeaService")
             
-            # Create request for historical metrics
-            request = self.client.get_type("GenerateHistoricalMetricsRequest")
-            request.customer_id = self.customer_id
+            # Create request for keyword ideas (which includes historical metrics)
+            request = self.client.get_type("GenerateKeywordIdeasRequest")
             
-            # Set geo target
-            geo_target = self.client.get_type("LocationInfo")
-            geo_target.location_constant = f"geoTargetConstants/{geo_target_id}"
-            request.geo_target_constants.append(geo_target)
+            # 🔧 HOT FIX: Use the exact same pattern as our working direct test
+            # Import settings directly since service doesn't have settings attribute
+            from app.core.config import settings
+            target_customer_id = settings.GOOGLE_ADS_CUSTOMER_ID or settings.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+            request.customer_id = target_customer_id
             
-            # Set language (English for now, could be parameterized)
-            request.language = self.client.get_service("LanguageConstantService").get_language_constant("1000").resource_name
+            logger.info(f"🔧 HOT FIX: Using customer_id for request: {target_customer_id}")
+            logger.info(f"🔧 Login customer ID: {settings.GOOGLE_ADS_LOGIN_CUSTOMER_ID}")
+            logger.info(f"🔧 Direct test used this exact customer ID and worked!")
             
-            # Add all keywords to the request (supports batch processing!)
-            for keyword_text in keywords:
-                request.keywords.append(keyword_text)
+            # Set keyword plan network
+            request.keyword_plan_network = self.client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH
             
-            # Set date range for historical data
-            end_date = date.today()
-            start_date = end_date - timedelta(days=months_back * 30)
+            # Set geo target - use GoogleAdsService for resource paths
+            request.geo_target_constants.append(
+                self.client.get_service("GoogleAdsService").geo_target_constant_path(str(geo_target_id))
+            )
             
-            request.historical_metrics_options.year_month_range.start.year = start_date.year
-            request.historical_metrics_options.year_month_range.start.month = start_date.month
-            request.historical_metrics_options.year_month_range.end.year = end_date.year
-            request.historical_metrics_options.year_month_range.end.month = end_date.month
+            # Set language (English)
+            request.language = self.client.get_service("GoogleAdsService").language_constant_path("1000")
+            
+            # Set keyword seed for the keywords we want metrics for
+            request.keyword_seed.keywords.extend(keywords)
+            
+            # Include historical metrics in the response
+            request.include_adult_keywords = False
             
             # Execute request
-            logger.info(f"Requesting historical metrics for {len(keywords)} keywords in {country}")
-            response = keyword_plan_service.generate_historical_metrics(request=request)
+            logger.info(f"Requesting keyword metrics for {len(keywords)} keywords in {country}")
+            response = keyword_plan_idea_service.generate_keyword_ideas(request=request)
             
             # Process results
             metrics = []
-            for metric_data in response.metrics:
-                metric_dict = MessageToDict(metric_data._pb)
-                
-                keyword_metric = KeywordMetric(
-                    keyword=metric_dict.get("keyword", ""),
-                    avg_monthly_searches=self._extract_avg_searches(metric_dict),
-                    competition_level=metric_dict.get("competition", "UNKNOWN"),
-                    low_top_of_page_bid_micros=metric_dict.get("lowTopOfPageBidMicros", 0),
-                    high_top_of_page_bid_micros=metric_dict.get("highTopOfPageBidMicros", 0),
-                    source=KeywordSource.GOOGLE_ADS,
-                    location_id=geo_target_id,
-                    country_code=country
-                )
+            keyword_ideas_dict = {}
+            
+            # Group results by keyword text
+            for result in response.results:
+                keyword_text = result.text
+                if keyword_text in keywords:  # Only process our requested keywords
+                    keyword_ideas_dict[keyword_text] = result
+            
+            # Create metrics for each requested keyword
+            for keyword_text in keywords:
+                if keyword_text in keyword_ideas_dict:
+                    idea = keyword_ideas_dict[keyword_text]
+                    keyword_metrics = idea.keyword_idea_metrics
+                    
+                    # Extract competition level
+                    competition = "UNKNOWN"
+                    if keyword_metrics.competition:
+                        competition = keyword_metrics.competition.name
+                    
+                    keyword_metric = KeywordMetric(
+                        keyword=keyword_text,
+                        avg_monthly_searches=keyword_metrics.avg_monthly_searches or 0,
+                        competition_level=competition,
+                        low_top_of_page_bid_micros=keyword_metrics.low_top_of_page_bid_micros or 0,
+                        high_top_of_page_bid_micros=keyword_metrics.high_top_of_page_bid_micros or 0,
+                        source=KeywordSource.GOOGLE_ADS,
+                        location_id=geo_target_id,
+                        country_code=country
+                    )
+                else:
+                    # No data found for this keyword
+                    keyword_metric = KeywordMetric(
+                        keyword=keyword_text,
+                        avg_monthly_searches=0,
+                        competition_level="UNKNOWN",
+                        low_top_of_page_bid_micros=0,
+                        high_top_of_page_bid_micros=0,
+                        source=KeywordSource.GOOGLE_ADS,
+                        location_id=geo_target_id,
+                        country_code=country
+                    )
                 
                 metrics.append(keyword_metric)
             
@@ -269,12 +317,20 @@ class EnhancedGoogleAdsService:
             
         except GoogleAdsException as ex:
             logger.error(f"Google Ads API error for {country}: {ex}")
-            for error in ex.errors:
-                logger.error(f"  Error code: {error.error_code}")
-                logger.error(f"  Error message: {error.message}")
+            logger.error(f"Request ID: {ex.request_id}")
+            # In v21 API, errors are in ex.failure.errors
+            if hasattr(ex, 'failure') and ex.failure and hasattr(ex.failure, 'errors'):
+                for error in ex.failure.errors:
+                    logger.error(f"  Error code: {error.error_code}")
+                    logger.error(f"  Error message: {error.message}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error getting historical metrics for {country}: {e}")
+            logger.error(f"🔍 CRITICAL ERROR in Google Ads service for {country}")
+            logger.error(f"🔍 Error type: {type(e).__name__}")
+            logger.error(f"🔍 Error message: {str(e)}")
+            logger.error(f"🔍 Error details: {repr(e)}")
+            import traceback
+            logger.error(f"🔍 Full traceback: {traceback.format_exc()}")
             raise
     
     def _extract_avg_searches(self, metric_dict: Dict[str, Any]) -> int:

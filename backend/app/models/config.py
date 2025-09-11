@@ -2,7 +2,7 @@
 Configuration models
 """
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, validator
@@ -18,6 +18,10 @@ class ClientConfig(BaseModel):
     secondary_color: str = "#10B981"
     admin_email: Optional[str] = None
     support_email: Optional[str] = None
+    description: Optional[str] = None
+    legal_name: Optional[str] = None
+    additional_domains: Optional[List[str]] = None
+    competitors: Optional[List[Dict[str, Any]]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
@@ -40,7 +44,7 @@ class AnalysisConfig(BaseModel):
     custom_dimensions: dict = {}
     temperature: float = 0.7
     max_tokens: int = 4000
-    model: str = "gpt-4-turbo-preview"
+    model: str = "gpt-4o-mini"
     enable_mention_extraction: bool = True
     enable_sentiment_analysis: bool = True
     enable_competitor_tracking: bool = True

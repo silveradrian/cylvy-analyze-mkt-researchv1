@@ -108,13 +108,27 @@ export function RealtimePipelineStatus({ pipelineId }: RealtimePipelineStatusPro
     landscapes_calculated: 0
   })
 
-  // WebSocket connection for real-time updates
+  // Enhanced WebSocket connection for real-time updates including robustness monitoring
   const { isConnected, lastMessage } = useWebSocket(`/ws/pipeline${pipelineId ? `/${pipelineId}` : ''}`)
+  
+  // State for robustness monitoring
+  const [serpBatchProgress, setSerpBatchProgress] = useState<any>(null)
+  const [circuitBreakerStatus, setCircuitBreakerStatus] = useState<string>('unknown')
 
-  // Handle WebSocket messages
+  // Handle WebSocket messages including new robustness events
   useEffect(() => {
-    if (lastMessage && lastMessage.type === 'pipeline_update') {
-      updatePipelineStatus(lastMessage.data)
+    if (lastMessage) {
+      if (lastMessage.type === 'pipeline_update') {
+        updatePipelineStatus(lastMessage.data)
+      } else if (lastMessage.type === 'serp_progress') {
+        // Handle Scale SERP batch progress updates
+        setSerpBatchProgress(lastMessage.data)
+        updatePipelineStatus({
+          phase: 'serp_collection',
+          status: 'running',
+          current_item: `Scale SERP Batch: ${lastMessage.data.batch_id || 'Processing'}`
+        })
+      }
     }
   }, [lastMessage])
 

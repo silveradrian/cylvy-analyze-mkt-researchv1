@@ -378,3 +378,41 @@ export const promptAPI = {
   },
 };
 
+// Generic Dimensions API
+export const genericDimensionsAPI = {
+  getDimensions: async () => {
+    return apiCall('/generic-dimensions');
+  },
+
+  createDimension: async (dimension: any) => {
+    return apiCall('/generic-dimensions', {
+      method: 'POST',
+      body: JSON.stringify(dimension),
+    });
+  },
+
+  updateDimension: async (dimensionId: string, updates: any) => {
+    return apiCall(`/generic-dimensions/${dimensionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  deleteDimension: async (dimensionId: string) => {
+    return apiCall(`/generic-dimensions/${dimensionId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  getTemplates: async () => {
+    return apiCall('/generic-dimensions/templates');
+  },
+
+  createFromTemplate: async (templateId: string, customizations: any = {}) => {
+    return apiCall('/generic-dimensions/from-template', {
+      method: 'POST',
+      body: JSON.stringify({ template_id: templateId, customizations }),
+    });
+  },
+};
+

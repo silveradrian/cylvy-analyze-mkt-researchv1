@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { CheckCircle, XCircle, Building, Users, Target, Rocket } from 'lucide-react'
+import { CheckCircle, XCircle, Building, Users, Target, Rocket, AlertTriangle } from 'lucide-react'
 import { configAPI } from '@/app/services/api'
 
 interface VerifyStepProps {
@@ -70,7 +70,7 @@ export function VerifyStep({ data, onFinish, onBack }: VerifyStepProps) {
       case 'success':
         return <CheckCircle className="w-5 h-5 text-green-500" />
       case 'warning':
-        return <AlertTriangle className="w-5 h-5 text-yellow-500" />
+        return <AlertTriangle className="w-5 h-5" style={{ color: 'rgb(var(--color-warning))' }} />
       case 'error':
         return <XCircle className="w-5 h-5 text-red-500" />
       default:
@@ -168,17 +168,25 @@ export function VerifyStep({ data, onFinish, onBack }: VerifyStepProps) {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <Target className="h-5 w-5" />
-              Competitors
+              Keywords & Regions
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-1">
-              {(data.competitor_domains || []).map((domain: string) => (
-                <Badge key={domain} variant="outline" className="text-xs">
-                  {domain}
-                </Badge>
-              ))}
-            </div>
+          <CardContent className="space-y-2 text-sm">
+            <div><strong>Keywords:</strong> {data.keywords?.length || 0}</div>
+            <div><strong>Regions:</strong> {data.regions?.length || 0}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Building className="h-5 w-5" />
+              Analysis Config
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div><strong>Dimensions:</strong> {data.custom_dimensions?.length || 0}</div>
+            <div><strong>Competitors:</strong> {data.competitors?.length || 0}</div>
           </CardContent>
         </Card>
       </div>

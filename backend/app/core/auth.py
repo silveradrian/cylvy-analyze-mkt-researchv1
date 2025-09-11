@@ -19,7 +19,7 @@ from app.core.exceptions import AuthenticationError, AuthorizationError
 
 # Security setup
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)  # Don't auto-error so we can handle auth bypass
 
 
 class AuthService:
@@ -96,10 +96,35 @@ class AuthService:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> User:
     """Get current authenticated user"""
+    
+    # Debug logging
+    logger.info(f"Auth check: ENVIRONMENT={settings.ENVIRONMENT}, SKIP_AUTH={settings.SKIP_AUTH}")
+    
+    # TEMPORARY: Skip authentication in development for testing
+    if settings.ENVIRONMENT == "development" and settings.SKIP_AUTH:
+        from app.models.user import User
+        from uuid import UUID
+        
+        # Return mock admin user for testing
+        return User(
+            id=UUID("3b2a96b7-c37c-4ae9-9a8a-f7facc70da4d"),
+            email="admin@cylvy.com",
+            hashed_password="mock",
+            full_name="Test Admin",
+            role="superadmin",
+            is_active=True,
+            last_login=datetime.utcnow(),
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+    
     try:
+        if not credentials:
+            raise AuthenticationError("No credentials provided")
+        
         token = credentials.credentials
         payload = jwt.decode(
             token, 

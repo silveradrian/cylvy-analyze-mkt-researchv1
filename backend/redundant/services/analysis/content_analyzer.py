@@ -443,7 +443,7 @@ class ContentAnalyzer:
         
         # Prepare request payload
         request_payload = {
-            "model": prompt_config.model_override if prompt_config and prompt_config.model_override else "gpt-4.1-2025-04-14",
+            "model": prompt_config.model_override if prompt_config and prompt_config.model_override else "gpt-5-nano",
             "messages": [
                 {
                     "role": "system",
@@ -460,7 +460,7 @@ class ContentAnalyzer:
             }],
             "tool_choice": {"type": "function", "function": {"name": "analyze_content"}},
             "temperature": prompt_config.temperature_override if prompt_config and prompt_config.temperature_override else config.temperature,
-            "max_tokens": prompt_config.max_tokens_override if prompt_config and prompt_config.max_tokens_override else 4000
+            "max_tokens": prompt_config.max_tokens_override if prompt_config and prompt_config.max_tokens_override else 32768  # GPT-4.1 max
         }
         
         # Log the full request for debugging
@@ -871,7 +871,7 @@ Analyze:
                         f"{self.base_url}/chat/completions",
                         headers=self.headers,
                         json={
-                            "model": "gpt-4.1",
+                            "model": "gpt-4.1-2025-04-14",
                             "messages": [
                                 {
                                     "role": "system",
@@ -1626,7 +1626,7 @@ Return a JSON object with:
         try:
             # Use GPT-4 for company identification
             data = {
-                "model": "gpt-4-0125-preview",
+                "model": "gpt-4.1-2025-04-14",
                 "messages": [
                     {"role": "system", "content": "You are an expert at identifying companies from YouTube channel information."},
                     {"role": "user", "content": prompt}

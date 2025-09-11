@@ -44,14 +44,14 @@ export default function AdvancedSettingsPage() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [error, setError] = useState<string>('')
 
-  // Default JTBD phases template
-  const defaultJTBDPhases: JTBDPhase[] = [
-    { phase: 'Problem Awareness', description: 'Customer becomes aware they have a problem or need', order_index: 1 },
-    { phase: 'Solution Exploration', description: 'Customer researches and evaluates potential solutions', order_index: 2 },
-    { phase: 'Requirement Definition', description: 'Customer defines specific requirements and criteria', order_index: 3 },
-    { phase: 'Vendor Evaluation', description: 'Customer evaluates and compares vendor options', order_index: 4 },
-    { phase: 'Decision Making', description: 'Customer makes final decision and selection', order_index: 5 },
-    { phase: 'Implementation', description: 'Customer implements and adopts the chosen solution', order_index: 6 }
+  // Gartner-based JTBD phases (pre-configured)
+  const gartnerJTBDPhases: JTBDPhase[] = [
+    { phase: 'Problem Identification', description: 'Recognition of business problem or opportunity requiring a solution', order_index: 1 },
+    { phase: 'Solution Exploration', description: 'Research and discovery of potential solution categories and approaches', order_index: 2 },
+    { phase: 'Requirements Building', description: 'Definition of specific needs, criteria, and constraints for the solution', order_index: 3 },
+    { phase: 'Vendor Selection', description: 'Evaluation and comparison of specific vendors and their offerings', order_index: 4 },
+    { phase: 'Validation & Consensus', description: 'Building internal agreement and validating the chosen solution', order_index: 5 },
+    { phase: 'Negotiation & Purchase', description: 'Final negotiations, contracting, and purchase decision', order_index: 6 }
   ]
 
   // Default source types template  
@@ -82,9 +82,9 @@ export default function AdvancedSettingsPage() {
       
       if (jtbdResponse.ok) {
         const jtbdData = await jtbdResponse.json()
-        setJtbdPhases(jtbdData.phases || defaultJTBDPhases)
+        setJtbdPhases(jtbdData.phases || gartnerJTBDPhases)
       } else {
-        setJtbdPhases(defaultJTBDPhases)
+        setJtbdPhases(gartnerJTBDPhases)
       }
 
       // Load source types (if endpoint exists)
@@ -106,7 +106,7 @@ export default function AdvancedSettingsPage() {
 
     } catch (error) {
       console.error('Failed to load settings:', error)
-      setJtbdPhases(defaultJTBDPhases)
+      setJtbdPhases(gartnerJTBDPhases)
       setSourceTypes(defaultSourceTypes)
     } finally {
       setLoading(false)
@@ -212,7 +212,7 @@ export default function AdvancedSettingsPage() {
   const resetToDefaults = (type: 'jtbd' | 'sources') => {
     if (confirm(`Reset ${type === 'jtbd' ? 'JTBD phases' : 'source types'} to default values?`)) {
       if (type === 'jtbd') {
-        setJtbdPhases([...defaultJTBDPhases])
+        setJtbdPhases([...gartnerJTBDPhases])
       } else {
         setSourceTypes([...defaultSourceTypes])
       }
@@ -283,7 +283,10 @@ export default function AdvancedSettingsPage() {
                   <div>
                     <CardTitle className="text-cylvy-midnight">Jobs-to-be-Done Framework</CardTitle>
                     <CardDescription>
-                      Define the customer journey phases for content analysis and scoring
+                      <span className="block">Pre-configured with Gartner's B2B buying journey phases</span>
+                      <span className="block text-xs mt-1 text-amber-600">
+                        ✓ Optional - These phases are already optimized for B2B SaaS analysis
+                      </span>
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
@@ -293,7 +296,7 @@ export default function AdvancedSettingsPage() {
                       className="text-gray-600"
                     >
                       <RotateCcw className="h-4 w-4 mr-2" />
-                      Reset to Defaults
+                      Reset to Gartner Defaults
                     </Button>
                     <Button onClick={addJTBDPhase} variant="outline">
                       <Plus className="h-4 w-4 mr-2" />

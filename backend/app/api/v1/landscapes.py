@@ -28,6 +28,7 @@ def get_landscape_calculator():
     return ProductionLandscapeCalculator(db_pool)
 
 
+@router.get("", response_model=List[DigitalLandscape])
 @router.get("/", response_model=List[DigitalLandscape])
 async def get_landscapes(current_user: User = Depends(get_current_user)):
     """Get all defined digital landscapes"""

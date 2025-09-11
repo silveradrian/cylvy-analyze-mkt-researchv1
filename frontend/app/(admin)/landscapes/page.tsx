@@ -99,7 +99,7 @@ export default function DigitalLandscapeManager() {
       
       if (response.ok) {
         const data = await response.json()
-        setLandscapes(data)
+        setLandscapes(Array.isArray(data) ? data : data.value || [])
       }
     } catch (error) {
       console.error('Failed to load landscapes:', error)

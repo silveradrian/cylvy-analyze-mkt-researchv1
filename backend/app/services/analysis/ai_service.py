@@ -14,7 +14,7 @@ class AIService:
         else:
             self.client = AsyncOpenAI(api_key=self.api_key)
     
-    async def analyze_content(self, prompt: str, model: str = "gpt-4.1") -> Dict[str, Any]:
+    async def analyze_content(self, prompt: str, model: str = "gpt-4o-mini") -> Dict[str, Any]:
         """Generate AI analysis for content"""
         if not self.api_key:
             return {
@@ -43,8 +43,7 @@ class AIService:
             
             return {
                 "analysis": analysis,
-                "model": model,
-                "tokens_used": response.usage.total_tokens
+                "model": model
             }
             
         except Exception as e:

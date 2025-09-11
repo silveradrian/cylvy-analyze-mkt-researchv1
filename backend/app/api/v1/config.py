@@ -21,7 +21,6 @@ class ClientConfigBase(BaseModel):
     admin_email: Optional[str] = Field(None, description="Admin contact email")
     support_email: Optional[str] = Field(None, description="Support contact email")
     description: Optional[str] = Field(None, description="Company description")
-    industry: Optional[str] = Field(None, description="Company industry")
 
 
 class ClientConfigUpdate(BaseModel):
@@ -31,9 +30,11 @@ class ClientConfigUpdate(BaseModel):
     admin_email: Optional[str] = None
     support_email: Optional[str] = None
     description: Optional[str] = None
-    industry: Optional[str] = None
     primary_color: Optional[str] = Field(None, pattern="^#[0-9A-Fa-f]{6}$")
     secondary_color: Optional[str] = Field(None, pattern="^#[0-9A-Fa-f]{6}$")
+    legal_name: Optional[str] = None
+    additional_domains: Optional[list[str]] = None
+    competitors: Optional[list[dict]] = None
 
 
 class ClientConfigResponse(ClientConfigBase):
@@ -42,6 +43,9 @@ class ClientConfigResponse(ClientConfigBase):
     company_logo_url: Optional[str] = None
     primary_color: str = "#3B82F6"
     secondary_color: str = "#10B981"
+    legal_name: Optional[str] = None
+    additional_domains: Optional[list[str]] = None
+    competitors: Optional[list[dict]] = None
     created_at: str
     updated_at: str
     

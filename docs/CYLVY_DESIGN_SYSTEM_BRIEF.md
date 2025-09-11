@@ -245,6 +245,34 @@ xl: '1280px'   /* Large desktop */
 @layer utilities    /* Helper utilities */
 ```
 
+### Tailwind Configuration Guardrails
+- Use rgb(var(--token)) for all semantic colors in Tailwind. Do not use hsl(var(--...)). Examples: `background: "rgb(var(--background))"`, `ring: "rgb(var(--ring))"`.
+- Prefer semantic tokens over raw Tailwind color utilities for status UI (badges, alerts, icons). Avoid `text-yellow-500`, `bg-yellow-100`, etc.
+- Keep focus styles consistent on interactive elements: `focus-visible:ring-2 focus-visible:ring-[rgb(229,24,72)] focus-visible:ring-offset-2`.
+
+### Status Token Structure (Light Mode)
+```css
+/* Accessible status tokens */
+--status-success-bg: 240 253 244;   /* green-50 */
+--status-success-fg: 4 120 87;      /* green-700 */
+--status-info-bg: 239 246 255;      /* blue-50 */
+--status-info-fg: 29 78 216;        /* blue-700 */
+--status-error-bg: 254 242 242;     /* red-50 */
+--status-error-fg: 185 28 28;       /* red-700 */
+--status-warning-bg: 255 251 235;   /* amber-50 */
+--status-warning-fg: 180 83 9;      /* amber-700 */
+```
+
+### Status Token Usage (Required)
+- Text only: `text-[rgb(var(--status-warning-fg))]`
+- Badge: `bg-[rgb(var(--status-info-bg))] text-[rgb(var(--status-info-fg))]`
+- Icons (when utilities are insufficient): `style={{ color: 'rgb(var(--status-error-fg))' }}`
+- Provided badge classes: `.cylvy-badge-success`, `.cylvy-badge-info`, `.cylvy-badge-warning`, `.cylvy-badge-error` ensure WCAG-compliant contrast.
+
+### Autofill and Background Anomalies
+- Chrome autofill can add yellow backgrounds to inputs. Global overrides force white backgrounds and preserve text contrast.
+- New input components should inherit `background-color: white` and define explicit `border` and `bg` to avoid undefined state styles.
+
 ### Design Token Structure
 ```css
 :root {
@@ -288,6 +316,40 @@ xl: '1280px'   /* Large desktop */
 <Label>Search Keywords</Label>
 <Input className="cylvy-input" placeholder="Enter keyword..." />
 ```
+
+### Status Badge (Accessible)
+```tsx
+<Badge variant="success">Completed</Badge>
+<Badge variant="info">Running</Badge>
+<Badge variant="warning">Pending</Badge>
+<Badge variant="error">Failed</Badge>
+```
+Output: Uses bg/fg pairs from status tokens for WCAG-friendly contrast.
+
+---
+
+## ♿ Accessibility & Contrast
+
+### Contrast Requirements
+- Body text minimum 4.5:1 contrast against background.
+- Large text (≥ 18px regular or ≥ 14px bold) minimum 3:1.
+- Status badges and alerts must use tokenized bg/fg pairs to guarantee contrast across themes.
+
+### What to Avoid
+- Do not use raw Tailwind yellows (e.g., `text-yellow-500`, `bg-yellow-100`) for status UI.
+- Do not hardcode brand colors where semantic tokens exist.
+- Do not rely on default borders/backgrounds; explicitly set `bg` and `border` with tokens on cards and containers.
+
+### Do This Instead
+- Focus: `focus-visible:ring-2 focus-visible:ring-[rgb(229,24,72)] focus-visible:ring-offset-2`
+- Status badge: `bg-[rgb(var(--status-warning-bg))] text-[rgb(var(--status-warning-fg))]`
+- Icons: `style={{ color: 'rgb(var(--status-info-fg))' }}` when needed.
+
+### Quick Verification Checklist
+- Search PR diffs for `text-(yellow|blue|green|red)-` and `bg-(yellow|blue|green|red)-` when used for status; replace with tokens.
+- Confirm Tailwind config uses `rgb(var(--...))` for semantic colors.
+- Manually test focus-visible rings on interactive elements.
+- Check input autofill on Chrome for unintended backgrounds.
 
 ---
 

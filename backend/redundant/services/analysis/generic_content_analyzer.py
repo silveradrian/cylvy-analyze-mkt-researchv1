@@ -118,7 +118,7 @@ class GenericContentAnalyzer:
                 }],
                 function_call={"name": "analyze_generic_dimensions"},
                 temperature=0.1,
-                max_tokens=4000
+                max_tokens=32768  # GPT-4.1 max output tokens
             )
             
             if response.choices[0].message.function_call:

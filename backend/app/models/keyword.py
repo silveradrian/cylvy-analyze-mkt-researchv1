@@ -57,9 +57,10 @@ class KeywordUpdate(BaseModel):
 class Keyword(KeywordBase):
     """Complete keyword model with database fields"""
     id: UUID
-    client_id: str
+    client_id: Optional[str] = Field(default="default")  # Optional for single-tenant
     created_at: datetime
     updated_at: datetime
+    countries: Optional[list[str]] = Field(default_factory=list, description="Countries where keyword is tracked")
 
     class Config:
         from_attributes = True

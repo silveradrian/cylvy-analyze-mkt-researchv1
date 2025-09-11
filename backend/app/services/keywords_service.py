@@ -30,18 +30,25 @@ class KeywordsService:
     ) -> List[Keyword]:
         """Get keywords with filtering and pagination"""
         async with db_pool.acquire() as conn:
-            query = "SELECT * FROM keywords WHERE 1=1"
+            query = """
+                SELECT k.*, 
+                       COALESCE(ARRAY_AGG(kc.country_code ORDER BY kc.country_code) 
+                               FILTER (WHERE kc.country_code IS NOT NULL), '{}') as countries
+                FROM keywords k
+                LEFT JOIN keywords_countries kc ON k.id = kc.keyword_id
+                WHERE 1=1
+            """
             params = []
             
             if category:
                 params.append(category)
-                query += f" AND category = ${len(params)}"
+                query += f" AND k.category = ${len(params)}"
             
             if search:
                 params.append(f"%{search}%")
-                query += f" AND keyword ILIKE ${len(params)}"
+                query += f" AND k.keyword ILIKE ${len(params)}"
             
-            query += f" ORDER BY keyword LIMIT {limit} OFFSET {offset}"
+            query += f" GROUP BY k.id ORDER BY k.keyword LIMIT {limit} OFFSET {offset}"
             
             rows = await conn.fetch(query, *params)
             return [Keyword(**dict(row)) for row in rows]
@@ -255,6 +262,34 @@ class KeywordsService:
             
             # For testing purposes, still return parsed data
             keywords_processed = 0
+        
+        # Assign countries to uploaded keywords
+        if keywords_processed > 0 and regions:
+            try:
+                async with db_pool.acquire() as conn:
+                    # Get all keyword IDs that were just uploaded
+                    keyword_ids = await conn.fetch(
+                        """
+                        SELECT id FROM keywords 
+                        WHERE keyword = ANY($1)
+                        """,
+                        [kw['keyword'] for kw in keywords_data]
+                    )
+                    
+                    if keyword_ids:
+                        # Bulk assign countries to keywords
+                        keyword_id_list = [row['id'] for row in keyword_ids]
+                        await conn.fetchval(
+                            """
+                            SELECT * FROM bulk_assign_keyword_countries($1::uuid[], $2::varchar[])
+                            """,
+                            keyword_id_list,
+                            regions
+                        )
+                        logger.info(f"Assigned {len(regions)} countries to {len(keyword_id_list)} keywords")
+            except Exception as country_error:
+                logger.error(f"Failed to assign countries: {str(country_error)}")
+                insert_errors.append(f"Country assignment failed: {str(country_error)}")
         
         # Combine parsing and insert errors
         all_errors = errors + insert_errors

@@ -4,12 +4,17 @@ Keyword metrics API endpoints
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
+from loguru import logger
+from datetime import datetime
+import asyncio
 
 from app.core.auth import get_current_user, require_admin
+from app.core.database import db_pool
 from app.models.user import User
 from app.models.keyword_metrics import KeywordMetric, KeywordMetricsRequest, KeywordJob
-from app.services.keywords.google_ads_service import GoogleAdsService
+from app.services.keywords.simplified_google_ads_service import SimplifiedGoogleAdsService as GoogleAdsService
 from app.services.keywords_service import KeywordsService
+from app.services.keyword_metrics_scheduler import KeywordMetricsScheduler
 
 
 router = APIRouter(prefix="/keyword-metrics", tags=["keyword-metrics"])
@@ -223,3 +228,107 @@ async def process_keyword_metrics_job(
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
         # In a full implementation, you'd update job status in database
+
+
+# Keyword metrics scheduler instance (initialized at startup)
+_metrics_scheduler: Optional[KeywordMetricsScheduler] = None
+
+
+def get_metrics_scheduler() -> KeywordMetricsScheduler:
+    """Get the metrics scheduler instance"""
+    global _metrics_scheduler
+    if not _metrics_scheduler:
+        from app.core.config import get_settings
+        settings = get_settings()
+        ads_service = GoogleAdsService(settings)
+        _metrics_scheduler = KeywordMetricsScheduler(settings, ads_service)
+    return _metrics_scheduler
+
+
+@router.post("/schedule/start")
+async def start_metrics_scheduler(
+    current_user: User = Depends(require_admin)
+):
+    """Start the monthly keyword metrics scheduler"""
+    scheduler = get_metrics_scheduler()
+    await scheduler.start_scheduler()
+    
+    return {
+        "status": "started",
+        "message": "Keyword metrics scheduler started successfully"
+    }
+
+
+@router.post("/schedule/stop")
+async def stop_metrics_scheduler(
+    current_user: User = Depends(require_admin)
+):
+    """Stop the monthly keyword metrics scheduler"""
+    scheduler = get_metrics_scheduler()
+    await scheduler.stop_scheduler()
+    
+    return {
+        "status": "stopped",
+        "message": "Keyword metrics scheduler stopped successfully"
+    }
+
+
+@router.post("/schedule/run-now")
+async def run_metrics_update_now(
+    background_tasks: BackgroundTasks,
+    force: bool = False,
+    current_user: User = Depends(require_admin)
+):
+    """Manually trigger a keyword metrics update"""
+    scheduler = get_metrics_scheduler()
+    
+    # Run in background
+    background_tasks.add_task(
+        scheduler.update_all_keyword_metrics,
+        force=force
+    )
+    
+    return {
+        "status": "triggered",
+        "message": "Keyword metrics update triggered in background",
+        "force": force
+    }
+
+
+@router.get("/schedule/status")
+async def get_metrics_schedule_status(
+    current_user: User = Depends(get_current_user)
+):
+    """Get the current status of keyword metrics scheduling"""
+    scheduler = get_metrics_scheduler()
+    status = await scheduler.get_metrics_status()
+    
+    return {
+        "scheduler_running": scheduler._scheduler_running,
+        "metrics_status": status
+    }
+
+
+@router.get("/jobs")
+async def get_metrics_jobs(
+    limit: int = 20,
+    job_type: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Get keyword metrics job history"""
+    from app.core.database import db_pool
+    
+    async with db_pool.acquire() as conn:
+        query = """
+            SELECT * FROM keyword_metrics_jobs 
+            WHERE ($1::text IS NULL OR job_type = $1)
+            ORDER BY created_at DESC 
+            LIMIT $2
+        """
+        
+        rows = await conn.fetch(query, job_type, limit)
+        
+        return {
+            "jobs": [dict(row) for row in rows],
+            "total": len(rows)
+        }

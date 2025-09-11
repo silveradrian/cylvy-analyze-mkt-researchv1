@@ -39,8 +39,7 @@ async def get_keywords_service():
     global keywords_service
     if not keywords_service:
         from app.core.config import settings
-        db = await get_db()
-        keywords_service = KeywordsService(settings, db)
+        keywords_service = KeywordsService(settings, None)
     return keywords_service
 
 

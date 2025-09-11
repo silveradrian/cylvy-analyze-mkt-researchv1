@@ -1,190 +1,205 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { PlayCircle, Clock, CheckCircle, XCircle, AlertCircle, Pause } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-
+import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { AdminLayout } from '@/components/layout/AdminLayout';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { 
+  Calendar, Clock, PlayCircle, CheckCircle, XCircle, 
+  AlertCircle, Settings, Activity, Timer, Pause,
+  ChevronRight, RefreshCw, Zap
+} from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
 
-interface PipelineStatus {
+interface ScheduledRun {
+  id: string;
+  content_type: string;
+  frequency: string;
+  next_run: string;
+  last_run?: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+}
+
+interface PipelineExecution {
   pipeline_id: string;
   status: string;
   mode: string;
   started_at: string;
   completed_at?: string;
-  duration_seconds?: number;
-  current_phase?: string;
-  phases_completed: string[];
-  phases_remaining: string[];
+  content_types: string[];
   keywords_processed: number;
-  serp_results_collected: number;
-  companies_enriched: number;
-  videos_enriched: number;
-  content_analyzed: number;
-  errors: string[];
-  warnings: string[];
+  current_phase?: string;
+  phases_completed?: string[];
 }
 
-export default function PipelineManagementPage() {
-  const [activePipelines, setActivePipelines] = useState<PipelineStatus[]>([]);
-  const [recentPipelines, setRecentPipelines] = useState([]);
+interface ScheduleConfig {
+  organic: string;
+  news: string;
+  video: string;
+  keyword_metrics: string;
+}
+
+const CONTENT_TYPE_INFO = {
+  organic: { name: 'Organic Search', icon: '🔍', color: 'bg-blue-100 text-blue-800' },
+  news: { name: 'News Results', icon: '📰', color: 'bg-green-100 text-green-800' },
+  video: { name: 'Video Content', icon: '📺', color: 'bg-purple-100 text-purple-800' },
+  keyword_metrics: { name: 'Keyword Metrics', icon: '📊', color: 'bg-orange-100 text-orange-800' }
+};
+
+export default function PipelinePage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig | null>(null);
+  const [recentExecutions, setRecentExecutions] = useState<PipelineExecution[]>([]);
+  const [upcomingRuns, setUpcomingRuns] = useState<ScheduledRun[]>([]);
+  const [activeTab, setActiveTab] = useState('timeline');
   const [error, setError] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
-  // Check authentication and load data
   useEffect(() => {
-    checkAuthAndLoadData();
+    loadPipelineData();
+    setupWebSocket();
   }, []);
 
-  const checkAuthAndLoadData = async () => {
-    setIsCheckingAuth(true);
-    
-    // Check if user has access token
-    let token = localStorage.getItem('access_token');
-    
-    if (!token) {
-      // Attempt auto-login
-      try {
-        console.log('🔐 Attempting auto-login for pipeline page...');
-        const loginResponse = await fetch('/api/v1/auth/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email: 'admin@cylvy.com',
-            password: 'admin123'
-          })
-        });
-        
-        if (loginResponse.ok) {
-          const loginData = await loginResponse.json();
-          token = loginData.access_token;
-          localStorage.setItem('access_token', token);
-          console.log('✅ Auto-login successful for pipeline page');
-          setIsAuthenticated(true);
-        } else {
-          const errorText = await loginResponse.text();
-          console.log('❌ Auto-login failed:', loginResponse.status, errorText);
-          setIsAuthenticated(false);
-          setError('Authentication failed - please login');
-          setIsCheckingAuth(false);
-          return;
-        }
-      } catch (error) {
-        console.log('❌ Auto-login error:', error);
-        setIsAuthenticated(false);
-        setError('Authentication failed - please login');
-        setIsCheckingAuth(false);
-        return;
-      }
-    } else {
-      setIsAuthenticated(true);
-    }
-    
-    setIsCheckingAuth(false);
-    
-    // Now load data with valid token
-    await loadRecentPipelines();
-    initWebSocket();
-  };
-
-  const initWebSocket = () => {
-    try {
-      // Connect to backend WebSocket
-      const ws = new WebSocket('ws://localhost:8001/ws/pipeline');
-      
-      ws.onopen = () => {
-        console.log('✅ Pipeline WebSocket connected');
-        setWsConnected(true);
-      };
-      
-      ws.onclose = () => {
-        console.log('❌ Pipeline WebSocket disconnected');
-        setWsConnected(false);
-        setTimeout(() => initWebSocket(), 5000);
-      };
-      
-      ws.onerror = (error) => {
-        console.log('❌ WebSocket error:', error);
-        setWsConnected(false);
-      };
-
-      ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        handlePipelineUpdate(message);
-      };
-      
-    } catch (error) {
-      console.log('❌ WebSocket initialization failed:', error);
-      setWsConnected(false);
-    }
-  };
-
-  const loadRecentPipelines = async () => {
+  const loadPipelineData = async () => {
     try {
       setLoading(true);
-      setError(null);
-      
       const token = localStorage.getItem('access_token');
-      const response = await fetch('/api/v1/pipeline/recent?limit=10', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+      
+      // Load schedule configuration
+      const scheduleResponse = await fetch('/api/v1/pipeline/schedules', {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        setRecentPipelines(data.pipelines || []);
-        
-        const active = (data.pipelines || []).filter(
-          (p: any) => ['pending', 'running'].includes(p.status)
-        );
-        setActivePipelines(active);
-        console.log('✅ Loaded pipelines:', data.pipelines?.length || 0);
-      } else {
-        const errorText = await response.text();
-        setError(`Failed to load pipelines (${response.status})`);
-        console.log('❌ Pipeline API error:', response.status, errorText);
+      if (scheduleResponse.ok) {
+        const scheduleData = await scheduleResponse.json();
+        if (scheduleData.schedules && scheduleData.schedules.length > 0) {
+          const schedule = scheduleData.schedules[0];
+          const config: ScheduleConfig = {
+            organic: 'monthly',
+            news: 'weekly',
+            video: 'monthly',
+            keyword_metrics: 'monthly'
+          };
+          
+          schedule.content_schedules?.forEach((cs: any) => {
+            if (cs.content_type in config) {
+              config[cs.content_type as keyof ScheduleConfig] = cs.frequency;
+            }
+          });
+          
+          setScheduleConfig(config);
+          calculateUpcomingRuns(config, schedule);
+        }
+      }
+      
+      // Load recent executions
+      const executionsResponse = await fetch('/api/v1/pipeline/recent?limit=10', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (executionsResponse.ok) {
+        const executionsData = await executionsResponse.json();
+        setRecentExecutions(executionsData.pipelines || []);
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load pipelines';
-      setError(errorMessage);
+      console.error('Failed to load pipeline data:', err);
+      setError('Failed to load pipeline data');
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePipelineUpdate = (message: any) => {
-    if (message.type === 'pipeline_update') {
-      const pipelineId = message.pipeline_id;
+  const calculateUpcomingRuns = (config: ScheduleConfig, schedule: any) => {
+    const now = new Date();
+    const runs: ScheduledRun[] = [];
+    
+    // Calculate next runs for each content type
+    Object.entries(config).forEach(([contentType, frequency]) => {
+      const lastRun = schedule.last_executed_at ? new Date(schedule.last_executed_at) : new Date();
+      let nextRun = new Date(lastRun);
       
-      setActivePipelines(prev => {
-        const updated = prev.map(p => 
-          p.pipeline_id === pipelineId 
-            ? { ...p, current_phase: message.data?.phase, ...message.data }
-            : p
-        );
-        
-        return updated.filter(p => ['pending', 'running'].includes(p.status));
-      });
-      
-      if (['completed', 'failed', 'cancelled'].includes(message.data?.status)) {
-        loadRecentPipelines();
+      switch (frequency) {
+        case 'daily':
+          nextRun.setDate(nextRun.getDate() + 1);
+          break;
+        case 'weekly':
+          nextRun.setDate(nextRun.getDate() + 7);
+          break;
+        case 'monthly':
+          nextRun.setMonth(nextRun.getMonth() + 1);
+          break;
       }
+      
+      // If next run is in the past, calculate from now
+      if (nextRun < now) {
+        nextRun = new Date(now);
+        switch (frequency) {
+          case 'daily':
+            nextRun.setDate(nextRun.getDate() + 1);
+            nextRun.setHours(9, 0, 0, 0); // 9 AM
+            break;
+          case 'weekly':
+            nextRun.setDate(nextRun.getDate() + (7 - nextRun.getDay() + 1) % 7); // Next Monday
+            nextRun.setHours(9, 0, 0, 0);
+            break;
+          case 'monthly':
+            nextRun.setMonth(nextRun.getMonth() + 1);
+            nextRun.setDate(1); // First of month
+            nextRun.setHours(9, 0, 0, 0);
+            break;
+        }
+      }
+      
+      runs.push({
+        id: `${contentType}-next`,
+        content_type: contentType,
+        frequency: frequency,
+        next_run: nextRun.toISOString(),
+        last_run: schedule.last_executed_at,
+        status: 'pending'
+      });
+    });
+    
+    setUpcomingRuns(runs.sort((a, b) => 
+      new Date(a.next_run).getTime() - new Date(b.next_run).getTime()
+    ));
+  };
+
+  const setupWebSocket = () => {
+    // WebSocket setup for live updates
+    try {
+      const ws = new WebSocket(process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8001/ws');
+      
+      ws.onopen = () => {
+        setWsConnected(true);
+        console.log('WebSocket connected for pipeline updates');
+      };
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'pipeline_update') {
+          loadPipelineData(); // Reload data on updates
+        }
+      };
+      
+      ws.onclose = () => {
+        setWsConnected(false);
+        // Retry connection after 5 seconds
+        setTimeout(setupWebSocket, 5000);
+      };
+      
+      return () => ws.close();
+    } catch (err) {
+      console.error('WebSocket error:', err);
     }
   };
 
-  const startSimplePipeline = async () => {
+  const startManualPipeline = async () => {
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch('/api/v1/pipeline/start', {
@@ -194,117 +209,109 @@ export default function PipelineManagementPage() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          collect_serp: true,
-          enrich_companies: true,
-          scrape_content: false,
-          analyze_content: false
+          content_types: ['organic', 'news', 'video'],
+          regions: ['US', 'UK', 'DE', 'SA', 'VN']
         })
       });
       
       if (response.ok) {
-        console.log('✅ Pipeline started successfully');
-        loadRecentPipelines();
+        await loadPipelineData();
+        setError(null);
       } else {
-        const errorText = await response.text();
-        setError(`Failed to start pipeline: ${response.status}`);
+        setError('Failed to start pipeline');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start pipeline');
+      setError('Failed to start pipeline');
+    }
+  };
+
+  const startTestPipeline = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch('/api/v1/pipeline/test-mode', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          batch_size: 5,
+          skip_delays: true,
+          regions: ['US'], // Backend will use regions from active schedule
+          content_types: ['organic', 'news', 'video']
+        })
+      });
+      
+      if (response.ok) {
+        await loadPipelineData();
+        setError(null);
+      } else {
+        setError('Failed to start test pipeline');
+      }
+    } catch (err) {
+      setError('Failed to start test pipeline');
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'pending': return <Clock className="h-4 w-4 text-yellow-500" />;
-      case 'running': return <PlayCircle className="h-4 w-4 text-blue-500" />;
-      case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'failed': return <XCircle className="h-4 w-4 text-red-500" />;
-      case 'cancelled': return <Pause className="h-4 w-4 text-gray-500" />;
+      case 'pending': return <Clock className="h-4 w-4 text-yellow-600" />;
+      case 'running': return <Activity className="h-4 w-4 text-blue-600 animate-pulse" />;
+      case 'completed': return <CheckCircle className="h-4 w-4 text-green-600" />;
+      case 'failed': return <XCircle className="h-4 w-4 text-red-600" />;
       default: return <AlertCircle className="h-4 w-4 text-gray-400" />;
     }
   };
 
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'running': return 'bg-blue-100 text-blue-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'failed': return 'bg-red-100 text-red-800';
-      case 'cancelled': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-600';
-    }
+  const formatTimeUntil = (date: string) => {
+    const future = new Date(date);
+    const now = new Date();
+    const diff = future.getTime() - now.getTime();
+    
+    if (diff < 0) return 'Overdue';
+    
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `in ${days} day${days > 1 ? 's' : ''}`;
+    if (hours > 0) return `in ${hours} hour${hours > 1 ? 's' : ''}`;
+    return 'in less than an hour';
   };
-
-  const calculateProgress = (pipeline: PipelineStatus) => {
-    const totalPhases = 7;
-    const completedCount = pipeline.phases_completed?.length || 0;
-    return Math.round((completedCount / totalPhases) * 100);
-  };
-
-  if (isCheckingAuth) {
-    return (
-      <AdminLayout title="Pipeline Management" description="Monitor and control competitive intelligence analysis">
-        <Card className="cylvy-card">
-          <CardContent className="text-center py-8">
-            <div className="w-8 h-8 border-2 border-cylvy-amaranth border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-gray-600">Authenticating...</p>
-          </CardContent>
-        </Card>
-      </AdminLayout>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <AdminLayout title="Pipeline Management" description="Monitor and control competitive intelligence analysis">
-        <Card className="cylvy-card">
-          <CardContent className="text-center py-8">
-            <div className="text-red-500 mb-4">Authentication Required</div>
-            <p className="text-gray-600">Please refresh the page to login</p>
-            <Button 
-              onClick={() => window.location.reload()} 
-              className="cylvy-btn-primary mt-4"
-            >
-              Refresh Page
-            </Button>
-          </CardContent>
-        </Card>
-      </AdminLayout>
-    );
-  }
 
   if (loading) {
     return (
-      <AdminLayout title="Pipeline Management" description="Monitor and control digital landscape analysis">
-        <Card className="cylvy-card">
-          <CardContent className="text-center py-8">
-            <div className="w-8 h-8 border-2 border-cylvy-amaranth border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading pipeline data...</p>
-          </CardContent>
-        </Card>
+      <AdminLayout title="Pipeline Timeline" description="Automated data collection schedule and execution history">
+        <div className="flex items-center justify-center h-64">
+          <Clock className="h-8 w-8 animate-spin text-cylvy-sage" />
+        </div>
       </AdminLayout>
     );
   }
 
   return (
-    <AdminLayout title="Pipeline Management" description="Monitor and control competitive intelligence analysis">
+    <AdminLayout title="Pipeline Timeline" description="Automated data collection schedule and execution history">
       <div className="space-y-6">
-        {/* Quick Actions */}
-        <div className="flex gap-4 items-center justify-between">
-          <div className="flex gap-4">
-            <Button onClick={startSimplePipeline} className="cylvy-btn-primary">
-              <PlayCircle className="mr-2 h-4 w-4" />
-              Start Analysis Pipeline
+        {/* Header Actions */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button onClick={() => router.push('/pipeline-schedules')} variant="outline">
+              <Settings className="h-4 w-4 mr-2" />
+              Configure Schedule
             </Button>
-            <Button onClick={loadRecentPipelines} variant="outline">
-              🔄 Refresh Data
+            <Button onClick={startManualPipeline} variant="outline">
+              <PlayCircle className="h-4 w-4 mr-2" />
+              Run Now (All Types)
+            </Button>
+            <Button onClick={startTestPipeline} variant="outline" className="text-purple-600">
+              <Zap className="h-4 w-4 mr-2" />
+              Test Mode
             </Button>
           </div>
           
           <div className="flex items-center gap-2 text-sm">
             <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`} />
             <span className="text-gray-600">
-              {wsConnected ? 'Live Updates' : 'Reconnecting...'}
+              {wsConnected ? 'Live Updates' : 'Connecting...'}
             </span>
           </div>
         </div>
@@ -313,157 +320,220 @@ export default function PipelineManagementPage() {
         {error && (
           <Alert className="border-red-200 bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">
-              {error}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-2 text-red-600 hover:text-red-800"
-                onClick={() => setError(null)}
-              >
-                Dismiss
-              </Button>
-            </AlertDescription>
+            <AlertDescription className="text-red-800">{error}</AlertDescription>
           </Alert>
         )}
 
-        <Tabs defaultValue="active" className="space-y-6 bg-transparent">
-          <TabsList className="grid w-full grid-cols-2 bg-white/90">
-            <TabsTrigger 
-              value="active" 
-              className="data-[state=active]:bg-cylvy-amaranth data-[state=active]:text-white"
-            >
-              Active Pipelines ({activePipelines.length})
-            </TabsTrigger>
-            <TabsTrigger 
-              value="history" 
-              className="data-[state=active]:bg-cylvy-amaranth data-[state=active]:text-white"
-            >
-              Pipeline History
-            </TabsTrigger>
+        {/* Main Content Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="timeline">Timeline View</TabsTrigger>
+            <TabsTrigger value="schedule">Schedule Status</TabsTrigger>
+            <TabsTrigger value="history">Execution History</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="active" className="space-y-4 bg-transparent">
-            {activePipelines.length === 0 ? (
-              <Card className="cylvy-card bg-white">
-                <CardContent className="text-center py-12 bg-white">
-                  <PlayCircle className="mx-auto h-16 w-16 text-gray-400 mb-6" />
-                  <h3 className="text-xl font-bold mb-2 text-cylvy-midnight">No Active Pipelines</h3>
-                  <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                    Start your first competitive intelligence analysis to begin collecting 
-                    data from your configured competitors.
-                  </p>
-                  <Button onClick={startSimplePipeline} className="cylvy-btn-primary">
-                    🚀 Start Analysis Pipeline
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-6">
-                {activePipelines.map((pipeline) => (
-                  <Card key={pipeline.pipeline_id} className="cylvy-card-hover">
-                    <CardHeader className="pb-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          {getStatusIcon(pipeline.status)}
-                          <div>
-                            <CardTitle className="text-xl text-cylvy-midnight">
-                              Finastra Analysis #{pipeline.pipeline_id.slice(0, 8)}
-                            </CardTitle>
-                            <CardDescription>
-                              Started {new Date(pipeline.started_at).toLocaleString()} • {pipeline.mode}
-                            </CardDescription>
-                          </div>
-                        </div>
-                        <Badge className={`px-3 py-1 ${getStatusBadgeClass(pipeline.status)}`}>
-                          {pipeline.status.toUpperCase()}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    
-                    <CardContent className="space-y-6">
-                      {/* Progress */}
-                      <div>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-sm font-medium text-gray-700">
-                            {pipeline.current_phase ? 
-                              `Current: ${pipeline.current_phase.replace(/_/g, ' ').toUpperCase()}` : 
-                              'Pipeline Progress'}
-                          </span>
-                          <span className="text-sm font-bold text-cylvy-amaranth">
-                            {calculateProgress(pipeline)}%
-                          </span>
-                        </div>
-                        <Progress value={calculateProgress(pipeline)} className="h-3 bg-gray-200" />
-                      </div>
-
-                      {/* Statistics */}
-                      <div className="grid grid-cols-5 gap-4 text-center">
-                        <div className="bg-blue-50 p-3 rounded-lg">
-                          <div className="text-2xl font-bold text-blue-600">{pipeline.keywords_processed}</div>
-                          <div className="text-xs text-blue-700 font-medium">Keywords</div>
-                        </div>
-                        <div className="bg-green-50 p-3 rounded-lg">
-                          <div className="text-2xl font-bold text-green-600">{pipeline.serp_results_collected}</div>
-                          <div className="text-xs text-green-700 font-medium">SERP Results</div>
-                        </div>
-                        <div className="bg-purple-50 p-3 rounded-lg">
-                          <div className="text-2xl font-bold text-purple-600">{pipeline.companies_enriched}</div>
-                          <div className="text-xs text-purple-700 font-medium">Companies</div>
-                        </div>
-                        <div className="bg-orange-50 p-3 rounded-lg">
-                          <div className="text-2xl font-bold text-orange-600">{pipeline.videos_enriched}</div>
-                          <div className="text-xs text-orange-700 font-medium">Videos</div>
-                        </div>
-                        <div className="bg-red-50 p-3 rounded-lg">
-                          <div className="text-2xl font-bold text-red-600">{pipeline.content_analyzed}</div>
-                          <div className="text-xs text-red-700 font-medium">Content</div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="history" className="space-y-4 bg-transparent">
-            <Card className="cylvy-card bg-white shadow-sm">
-              <CardHeader className="bg-white">
-                <CardTitle className="text-cylvy-midnight">Pipeline History</CardTitle>
-                <CardDescription>
-                  Recent competitive intelligence analysis runs
-                </CardDescription>
+          {/* Timeline View */}
+          <TabsContent value="timeline" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Upcoming Scheduled Runs</CardTitle>
+                <CardDescription>Next automated data collection times</CardDescription>
               </CardHeader>
-              <CardContent className="bg-white">
-                {recentPipelines.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Clock className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                    <h3 className="text-lg font-medium mb-2">No Pipeline History</h3>
-                    <p className="text-gray-600">
-                      Pipeline execution history will appear here once you start running analyses
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {recentPipelines.slice(0, 10).map((pipeline: any, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
+              <CardContent>
+                <div className="space-y-4">
+                  {upcomingRuns.map((run) => {
+                    const info = CONTENT_TYPE_INFO[run.content_type as keyof typeof CONTENT_TYPE_INFO];
+                    return (
+                      <div key={run.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                         <div className="flex items-center gap-3">
-                          {getStatusIcon(pipeline.status)}
+                          <span className="text-2xl">{info.icon}</span>
                           <div>
-                            <div className="font-medium">Pipeline #{(pipeline.id || index).toString().slice(0, 8)}</div>
-                            <div className="text-sm text-gray-600">
-                              {pipeline.created_at ? new Date(pipeline.created_at).toLocaleString() : 'Recent'}
-                            </div>
+                            <h4 className="font-medium">{info.name}</h4>
+                            <p className="text-sm text-gray-600">
+                              {run.frequency} collection • {formatTimeUntil(run.next_run)}
+                            </p>
                           </div>
                         </div>
-                        <Badge className={getStatusBadgeClass(pipeline.status)}>
-                          {pipeline.status}
-                        </Badge>
+                        <div className="flex items-center gap-3">
+                          <Badge className={info.color}>
+                            {new Date(run.next_run).toLocaleDateString('en-US', { 
+                              weekday: 'short', 
+                              month: 'short', 
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit'
+                            })}
+                          </Badge>
+                          {getStatusIcon(run.status)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Timeline Visualization */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Collection Timeline</CardTitle>
+                <CardDescription>Visual representation of your data collection schedule</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="relative">
+                  {/* Timeline line */}
+                  <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200"></div>
+                  
+                  {/* Timeline items */}
+                  <div className="space-y-6">
+                    {[...upcomingRuns, ...recentExecutions.slice(0, 3).map(exec => ({
+                      id: exec.pipeline_id,
+                      content_type: Array.isArray(exec.content_types) ? exec.content_types.join(', ') : 'Unknown',
+                      frequency: 'manual',
+                      next_run: exec.started_at,
+                      status: exec.status,
+                      isPast: true
+                    }))].sort((a, b) => 
+                      new Date(b.next_run).getTime() - new Date(a.next_run).getTime()
+                    ).map((item, index) => (
+                      <div key={item.id} className="relative flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center z-10 ${
+                          'isPast' in item && item.isPast 
+                            ? 'bg-gray-100 border-2 border-gray-300' 
+                            : 'bg-white border-2 border-cylvy-sage'
+                        }`}>
+                          {getStatusIcon(item.status)}
+                        </div>
+                        <div className={`flex-1 p-3 rounded-lg ${
+                          'isPast' in item && item.isPast ? 'bg-gray-50' : 'bg-blue-50'
+                        }`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium">
+                                {'isPast' in item && item.isPast ? 'Completed' : 'Scheduled'}: {
+                                  item.content_type.includes(',') 
+                                    ? 'All Content Types' 
+                                    : CONTENT_TYPE_INFO[item.content_type as keyof typeof CONTENT_TYPE_INFO]?.name
+                                }
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                {new Date(item.next_run).toLocaleString()}
+                              </p>
+                            </div>
+                            {'isPast' in item && item.isPast ? null : (
+                              <Badge variant="outline">{item.frequency}</Badge>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Schedule Status */}
+          <TabsContent value="schedule" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Current Schedule Configuration</CardTitle>
+                <CardDescription>Active data collection frequencies</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {scheduleConfig ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    {Object.entries(scheduleConfig).map(([type, frequency]) => {
+                      const info = CONTENT_TYPE_INFO[type as keyof typeof CONTENT_TYPE_INFO];
+                      return (
+                        <div key={type} className="p-4 border rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-xl">{info.icon}</span>
+                            <h4 className="font-medium">{info.name}</h4>
+                          </div>
+                          <Badge className={info.color}>{frequency}</Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <Calendar className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                    <p>No schedule configured yet</p>
+                    <Button 
+                      onClick={() => router.push('/pipeline-schedules')} 
+                      className="mt-4"
+                      variant="outline"
+                    >
+                      Configure Schedule
+                    </Button>
+                  </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Execution History */}
+          <TabsContent value="history" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Pipeline Executions</CardTitle>
+                <CardDescription>Last 10 pipeline runs</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {recentExecutions.map((execution) => (
+                    <div key={execution.pipeline_id} className="p-4 border rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {getStatusIcon(execution.status)}
+                          <div>
+                            <p className="font-medium">
+                              {Array.isArray(execution.content_types) ? execution.content_types.join(', ') : 'Unknown'} • {execution.mode} mode
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              Started {formatDistanceToNow(new Date(execution.started_at))} ago
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <Badge variant={
+                            execution.status === 'completed' ? 'default' : 
+                            execution.status === 'running' ? 'secondary' : 
+                            'destructive'
+                          }>
+                            {execution.status}
+                          </Badge>
+                          {execution.keywords_processed > 0 && (
+                            <p className="text-sm text-gray-600 mt-1">
+                              {execution.keywords_processed} keywords
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {execution.current_phase && execution.status === 'running' && (
+                        <div className="mt-3 pt-3 border-t">
+                          <p className="text-sm text-gray-600">
+                            Current: {execution.current_phase}
+                          </p>
+                          <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                            <div 
+                              className="bg-cylvy-sage h-2 rounded-full transition-all"
+                              style={{ width: `${(execution.phases_completed?.length || 0) / 7 * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {recentExecutions.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <Timer className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                      <p>No pipeline executions yet</p>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

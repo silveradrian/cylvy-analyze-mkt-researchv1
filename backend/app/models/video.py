@@ -76,6 +76,8 @@ class VideoSnapshot(BaseModel):
     serp_engine: Optional[str] = "google"
     fetched_at: datetime = Field(default_factory=datetime.utcnow)
     video_url: str
+    channel_company_domain: Optional[str] = None
+    channel_source_type: Optional[str] = None
 
 
 class VideoMetrics(BaseModel):

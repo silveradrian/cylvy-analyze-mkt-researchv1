@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = Field(..., env="JWT_SECRET_KEY")
     JWT_ALGORITHM: str = Field("HS256", env="JWT_ALGORITHM")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
+    SKIP_AUTH: bool = Field(False, env="SKIP_AUTH")  # Temporary flag to skip authentication for testing
     
     # Database
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
@@ -68,7 +69,7 @@ class Settings(BaseSettings):
     GENERIC_DIMENSIONS_ENABLED: bool = Field(True, env="GENERIC_DIMENSIONS_ENABLED")
     
     # Generic Dimensions Configuration
-    OPENAI_MODEL_GENERIC_ANALYSIS: str = Field("gpt-4-1106-preview", env="OPENAI_MODEL_GENERIC_ANALYSIS")
+    OPENAI_MODEL_GENERIC_ANALYSIS: str = Field("gpt-4o-mini", env="OPENAI_MODEL_GENERIC_ANALYSIS")
     EVIDENCE_ANALYSIS_TIMEOUT: int = Field(45, env="EVIDENCE_ANALYSIS_TIMEOUT")
     MAX_DIMENSIONS_PER_ANALYSIS: int = Field(20, env="MAX_DIMENSIONS_PER_ANALYSIS")
     DYNAMIC_PROMPT_MAX_LENGTH: int = Field(16000, env="DYNAMIC_PROMPT_MAX_LENGTH")

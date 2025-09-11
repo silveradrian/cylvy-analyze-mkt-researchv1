@@ -47,6 +47,16 @@
     --ring: var(--cylvy-amaranth);   /* Focus rings in brand color */
 
     --radius: 0.5rem;
+
+    /* Accessible Status Tokens (Light mode) */
+    --status-success-bg: 240 253 244;   /* green-50 */
+    --status-success-fg: 4 120 87;      /* green-700 */
+    --status-info-bg: 239 246 255;      /* blue-50 */
+    --status-info-fg: 29 78 216;        /* blue-700 */
+    --status-error-bg: 254 242 242;     /* red-50 */
+    --status-error-fg: 185 28 28;       /* red-700 */
+    --status-warning-bg: 255 251 235;   /* amber-50 */
+    --status-warning-fg: 180 83 9;      /* amber-700 */
   }
 
   .dark {
@@ -235,15 +245,27 @@
   
   /* Status Badges */
   .cylvy-badge-success {
-    @apply bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium;
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+    background-color: rgb(var(--status-success-bg));
+    color: rgb(var(--status-success-fg));
   }
   
   .cylvy-badge-warning {
-    @apply bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-medium;
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+    background-color: rgb(var(--color-warning) / 0.1);
+    color: rgb(var(--color-warning));
   }
   
   .cylvy-badge-error {
-    @apply bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium;
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+    background-color: rgb(var(--status-error-bg));
+    color: rgb(var(--status-error-fg));
+  }
+
+  .cylvy-badge-info {
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+    background-color: rgb(var(--status-info-bg));
+    color: rgb(var(--status-info-fg));
   }
   
   .cylvy-badge-primary {

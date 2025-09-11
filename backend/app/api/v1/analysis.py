@@ -44,7 +44,7 @@ class AnalysisConfigRequest(BaseModel):
     # AI Configuration
     temperature: float = 0.7
     max_tokens: int = 4000
-    model: str = "gpt-4-turbo-preview"
+    model: str = "gpt-4o-mini"
     
     # Feature flags
     enable_mention_extraction: bool = True

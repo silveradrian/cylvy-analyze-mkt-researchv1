@@ -14,8 +14,10 @@ const nextConfig = {
     ],
   },
   async rewrites() {
-    // Always use Docker internal networking for containers
-    const backendUrl = 'http://backend:8000';
+    // Use localhost for development, Docker internal networking for containers
+    const backendUrl = process.env.DOCKER_ENV 
+      ? 'http://backend:8000'
+      : 'http://localhost:8001';
     
     console.log('Next.js Proxy Backend URL:', backendUrl);
     

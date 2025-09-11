@@ -22,7 +22,13 @@ class ConfigService:
             if not row:
                 return None
             
-            return ClientConfig(**dict(row))
+            data = dict(row)
+            # Parse JSONB fields if they're strings
+            if isinstance(data.get('competitors'), str):
+                import json
+                data['competitors'] = json.loads(data['competitors'])
+            
+            return ClientConfig(**data)
     
     async def update_config(self, updates: Dict[str, Any]) -> ClientConfig:
         """Update client configuration"""
@@ -34,32 +40,51 @@ class ConfigService:
             
             if not existing:
                 # Create initial config
+                # Ensure all fields are included
+                insert_fields = ['company_name', 'company_domain', 'primary_color', 'secondary_color', 
+                                'description', 'legal_name', 'additional_domains', 'competitors']
+                placeholders = ', '.join([f'${i+1}' for i in range(len(insert_fields))])
+                
                 result = await conn.fetchrow(
-                    """
+                    f"""
                     INSERT INTO client_config 
-                    (company_name, company_domain, primary_color, secondary_color)
-                    VALUES ($1, $2, $3, $4)
+                    ({', '.join(insert_fields)})
+                    VALUES ({placeholders})
                     RETURNING *
                     """,
                     updates.get('company_name', 'My Company'),
                     updates.get('company_domain', 'example.com'),
                     updates.get('primary_color', '#3B82F6'),
-                    updates.get('secondary_color', '#10B981')
+                    updates.get('secondary_color', '#10B981'),
+                    updates.get('description', ''),
+                    updates.get('legal_name', updates.get('company_name', 'My Company')),
+                    updates.get('additional_domains', []),
+                    updates.get('competitors', [])
                 )
             else:
                 # Build update query
                 set_clauses = []
                 values = []
                 for idx, (key, value) in enumerate(updates.items(), 1):
-                    set_clauses.append(f"{key} = ${idx}")
-                    values.append(value)
+                    # Handle special types
+                    if key == 'competitors' and isinstance(value, list):
+                        # Convert list to JSONB
+                        set_clauses.append(f"{key} = ${idx}::jsonb")
+                        values.append(json.dumps(value))
+                    elif key == 'additional_domains' and isinstance(value, list):
+                        # PostgreSQL array type
+                        set_clauses.append(f"{key} = ${idx}::text[]")
+                        values.append(value)
+                    else:
+                        set_clauses.append(f"{key} = ${idx}")
+                        values.append(value)
                 
                 query = f"""
                     UPDATE client_config 
                     SET {', '.join(set_clauses)}, updated_at = NOW()
-                    WHERE id = $%s
+                    WHERE id = ${len(values) + 1}
                     RETURNING *
-                """ % (len(values) + 1)
+                """
                 
                 values.append(existing)
                 result = await conn.fetchrow(query, *values)

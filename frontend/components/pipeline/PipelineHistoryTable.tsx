@@ -47,13 +47,13 @@ export function PipelineHistoryTable({ pipelines }: PipelineHistoryTableProps) {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Clock className="h-4 w-4 text-yellow-500" />
+        return <Clock className="h-4 w-4" style={{ color: 'rgb(var(--color-warning))' }} />
       case 'running':
-        return <PlayCircle className="h-4 w-4 text-blue-500" />
+        return <PlayCircle className="h-4 w-4" style={{ color: 'rgb(var(--status-info-fg))' }} />
       case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />
+        return <CheckCircle className="h-4 w-4" style={{ color: 'rgb(var(--status-success-fg))' }} />
       case 'failed':
-        return <XCircle className="h-4 w-4 text-red-500" />
+        return <XCircle className="h-4 w-4" style={{ color: 'rgb(var(--status-error-fg))' }} />
       case 'cancelled':
         return <Pause className="h-4 w-4 text-gray-500" />
       default:
@@ -64,13 +64,13 @@ export function PipelineHistoryTable({ pipelines }: PipelineHistoryTableProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending':
-        return 'bg-yellow-100 text-yellow-800'
+        return 'text-[rgb(var(--color-warning))]'
       case 'running':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-[rgb(var(--status-info-bg))] text-[rgb(var(--status-info-fg))]'
       case 'completed':
-        return 'bg-green-100 text-green-800'
+        return 'bg-[rgb(var(--status-success-bg))] text-[rgb(var(--status-success-fg))]'
       case 'failed':
-        return 'bg-red-100 text-red-800'
+        return 'bg-[rgb(var(--status-error-bg))] text-[rgb(var(--status-error-fg))]'
       case 'cancelled':
         return 'bg-gray-100 text-gray-800'
       default:

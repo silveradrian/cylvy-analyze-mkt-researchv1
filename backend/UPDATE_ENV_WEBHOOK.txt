@@ -1,0 +1,6 @@
+Add this line to your backend/.env file:
+
+SCALESERP_WEBHOOK_URL=https://96b19dbdc912.ngrok-free.app/api/v1/webhooks/scaleserp/batch-complete
+
+This will enable Scale SERP to send batch completion notifications to your local development environment.
+
