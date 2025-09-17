@@ -790,17 +790,25 @@ class PipelineService:
                 if serp_domains:
                     try:
                         async with self.db.acquire() as conn:
-                            # Check which domains are already in company_profiles
+                            # Normalize domains to root domain (remove www) for proper matching
+                            normalized_serp_domains = [d.replace('www.', '') if d.startswith('www.') else d for d in serp_domains]
+                            
                             existing_result = await conn.fetch(
                                 """
                                 SELECT DISTINCT domain 
                                 FROM company_profiles 
                                 WHERE domain = ANY($1::text[])
                                 """,
-                                serp_domains
+                                normalized_serp_domains
                             )
                             existing_domains = {row['domain'] for row in existing_result}
-                            domains_to_enrich = [d for d in serp_domains if d not in existing_domains]
+                            
+                            # Filter out domains that already have profiles (match on normalized root domain)
+                            domains_to_enrich = []
+                            for original_domain in serp_domains:
+                                normalized = original_domain.replace('www.', '') if original_domain.startswith('www.') else original_domain
+                                if normalized not in existing_domains:
+                                    domains_to_enrich.append(original_domain)
                             
                             logger.info(f"Company enrichment: {len(serp_domains)} total domains, "
                                       f"{len(existing_domains)} already enriched, "
@@ -1586,15 +1594,24 @@ class PipelineService:
         """
         logger.info(f"🏢 Starting company enrichment for {phase_name}: {len(domains)} domains")
         
-        # Filter out already enriched domains
+        # Filter out already enriched domains (normalize www domains)
         try:
             async with db_pool.acquire() as conn:
+                # Normalize domains to root domain for proper matching
+                normalized_domains = [d.replace('www.', '') if d.startswith('www.') else d for d in domains]
+                
                 existing_domains = await conn.fetch(
                     "SELECT DISTINCT domain FROM company_profiles WHERE domain = ANY($1::text[])",
-                    domains
+                    normalized_domains
                 )
                 existing_set = {row['domain'] for row in existing_domains}
-                domains_to_enrich = [d for d in domains if d not in existing_set]
+                
+                # Filter out domains that already have profiles (match on normalized root domain)  
+                domains_to_enrich = []
+                for original_domain in domains:
+                    normalized = original_domain.replace('www.', '') if original_domain.startswith('www.') else original_domain
+                    if normalized not in existing_set:
+                        domains_to_enrich.append(original_domain)
                 
                 logger.info(f"🏢 Filtered domains: {len(domains)} total, {len(existing_set)} already enriched, {len(domains_to_enrich)} to process")
                 domains = domains_to_enrich
@@ -2135,14 +2152,21 @@ class PipelineService:
                     AND domain IS NOT NULL
                 """, str(pipeline_id))
                 
-                # Get enriched domains (from company_profiles)
+                # Get enriched domains (normalize www domains for proper matching)
                 enriched_domains = await conn.fetchval("""
+                    WITH serp_domains AS (
+                        SELECT DISTINCT 
+                            CASE WHEN domain LIKE 'www.%' 
+                                 THEN SUBSTRING(domain FROM 5) 
+                                 ELSE domain 
+                            END as normalized_domain
+                        FROM serp_results 
+                        WHERE pipeline_execution_id = $1
+                        AND domain IS NOT NULL
+                    )
                     SELECT COUNT(DISTINCT cp.domain)
                     FROM company_profiles cp
-                    WHERE cp.domain IN (
-                        SELECT DISTINCT domain FROM serp_results 
-                        WHERE pipeline_execution_id = $1
-                    )
+                    JOIN serp_domains sd ON cp.domain = sd.normalized_domain
                 """, str(pipeline_id))
                 
                 percentage = (enriched_domains / total_domains * 100) if total_domains > 0 else 0
