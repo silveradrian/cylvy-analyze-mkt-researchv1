@@ -2243,7 +2243,7 @@ class PipelineService:
                     
                     # Calculate landscape-specific company DSI using ProductionLandscapeCalculator
                     landscape_result = await self.landscape_calculator.calculate_and_store_landscape_dsi(
-                        landscape['id'], 
+                        str(landscape['id']), 
                         'default'  # Use default client_id for pipeline calculations
                     )
                     
@@ -2503,7 +2503,7 @@ class PipelineService:
                     logger.info(f"Calculating DSI for landscape: {landscape['name']}")
                     
                     result = await self.landscape_calculator.calculate_and_store_landscape_dsi(
-                        landscape['id'], config.client_id
+                        str(landscape['id']), str(config.client_id or 'default')
                     )
                     
                     landscape_results[landscape['name']] = {
