@@ -1020,26 +1020,46 @@ class PipelineService:
                 dsi_dependencies_met = False
                 dsi_skip_reasons.append("No SERP results collected")
             
-            # Check content_analysis dependency
+            # Check content_analysis dependency with 90% tolerance
             if config.enable_content_analysis:
                 content_analysis_result = result.phase_results.get(PipelinePhase.CONTENT_ANALYSIS, {})
-                # Consider flexible completion as success
-                is_flexible_completion = content_analysis_result.get('flexible_completion', False)
-                has_analyzed_content = content_analysis_result.get('content_analyzed', 0) > 0
+                content_stats = await self._check_content_completeness(pipeline_id)
                 
-                if not content_analysis_result.get('success', False) and not is_flexible_completion:
+                # Check scraping completeness (90% tolerance)
+                if content_stats['scraping_percentage'] < 90.0:
                     dsi_dependencies_met = False
-                    dsi_skip_reasons.append("Content analysis did not complete successfully")
-                elif not has_analyzed_content:
+                    dsi_skip_reasons.append(
+                        f"Content scraping only {content_stats['scraping_percentage']:.1f}% complete "
+                        f"({content_stats['scraped_urls']}/{content_stats['total_urls']} URLs). "
+                        f"Need ≥90% for DSI calculation."
+                    )
+                # Check analysis completeness (90% tolerance of scraped content)
+                elif content_stats['analysis_percentage'] < 90.0:
                     dsi_dependencies_met = False
-                    dsi_skip_reasons.append("No content was analyzed")
+                    dsi_skip_reasons.append(
+                        f"Content analysis only {content_stats['analysis_percentage']:.1f}% complete "
+                        f"({content_stats['analyzed_urls']}/{content_stats['scraped_urls']} scraped URLs). "
+                        f"Need ≥90% for DSI calculation."
+                    )
+                else:
+                    logger.info(f"Content scraping {content_stats['scraping_percentage']:.1f}% and "
+                              f"analysis {content_stats['analysis_percentage']:.1f}% complete - sufficient for DSI")
             
-            # Check company_enrichment dependency (both SERP and YouTube enrichment)
+            # Check company_enrichment dependency with 90% tolerance
             if config.enable_company_enrichment:
                 company_enrichment_result = result.phase_results.get(PipelinePhase.COMPANY_ENRICHMENT_SERP, {})
-                if not company_enrichment_result.get('success', False):
+                enrichment_stats = await self._check_enrichment_completeness(pipeline_id)
+                
+                # Require 90% of domains to be enriched
+                if enrichment_stats['enrichment_percentage'] < 90.0:
                     dsi_dependencies_met = False
-                    dsi_skip_reasons.append("Company enrichment (SERP) did not complete successfully")
+                    dsi_skip_reasons.append(
+                        f"Company enrichment only {enrichment_stats['enrichment_percentage']:.1f}% complete "
+                        f"({enrichment_stats['enriched_domains']}/{enrichment_stats['total_domains']} domains). "
+                        f"Need ≥90% for DSI calculation."
+                    )
+                else:
+                    logger.info(f"Company enrichment {enrichment_stats['enrichment_percentage']:.1f}% complete - sufficient for DSI")
             
             # Check video enrichment if enabled (Non-Critical - Don't block DSI)
             if config.enable_video_enrichment:
@@ -2069,6 +2089,87 @@ class PipelineService:
             'channels_resolved': stats['channels_resolved'],
             'errors': [f"Analysis/channel resolution timeout after {max_wait_time} seconds"]
         }
+    
+    async def _check_enrichment_completeness(self, pipeline_id: UUID) -> Dict[str, Any]:
+        """Check company enrichment completeness for pipeline"""
+        try:
+            async with self.db.acquire() as conn:
+                # Get total domains from SERP results
+                total_domains = await conn.fetchval("""
+                    SELECT COUNT(DISTINCT domain) 
+                    FROM serp_results 
+                    WHERE pipeline_execution_id = $1
+                    AND domain IS NOT NULL
+                """, str(pipeline_id))
+                
+                # Get enriched domains (from company_profiles)
+                enriched_domains = await conn.fetchval("""
+                    SELECT COUNT(DISTINCT cp.domain)
+                    FROM company_profiles cp
+                    WHERE cp.domain IN (
+                        SELECT DISTINCT domain FROM serp_results 
+                        WHERE pipeline_execution_id = $1
+                    )
+                """, str(pipeline_id))
+                
+                percentage = (enriched_domains / total_domains * 100) if total_domains > 0 else 0
+                
+                return {
+                    'total_domains': total_domains,
+                    'enriched_domains': enriched_domains,
+                    'enrichment_percentage': percentage
+                }
+        except Exception as e:
+            logger.error(f"Error checking enrichment completeness: {e}")
+            return {'total_domains': 0, 'enriched_domains': 0, 'enrichment_percentage': 0}
+    
+    async def _check_content_completeness(self, pipeline_id: UUID) -> Dict[str, Any]:
+        """Check content scraping and analysis completeness for pipeline"""
+        try:
+            async with self.db.acquire() as conn:
+                # Get total URLs from SERP results
+                total_urls = await conn.fetchval("""
+                    SELECT COUNT(DISTINCT url)
+                    FROM serp_results
+                    WHERE pipeline_execution_id = $1
+                """, str(pipeline_id))
+                
+                # Get scraped URLs
+                scraped_urls = await conn.fetchval("""
+                    SELECT COUNT(DISTINCT sc.url)
+                    FROM scraped_content sc
+                    INNER JOIN serp_results sr ON sr.url = sc.url
+                    WHERE sr.pipeline_execution_id = $1
+                    AND sc.status = 'completed'
+                """, str(pipeline_id))
+                
+                # Get analyzed URLs
+                analyzed_urls = await conn.fetchval("""
+                    SELECT COUNT(DISTINCT oca.url)
+                    FROM optimized_content_analysis oca
+                    INNER JOIN serp_results sr ON sr.url = oca.url
+                    WHERE sr.pipeline_execution_id = $1
+                """, str(pipeline_id))
+                
+                scraping_percentage = (scraped_urls / total_urls * 100) if total_urls > 0 else 0
+                analysis_percentage = (analyzed_urls / scraped_urls * 100) if scraped_urls > 0 else 0
+                
+                return {
+                    'total_urls': total_urls,
+                    'scraped_urls': scraped_urls,
+                    'analyzed_urls': analyzed_urls,
+                    'scraping_percentage': scraping_percentage,
+                    'analysis_percentage': analysis_percentage
+                }
+        except Exception as e:
+            logger.error(f"Error checking content completeness: {e}")
+            return {
+                'total_urls': 0, 
+                'scraped_urls': 0, 
+                'analyzed_urls': 0,
+                'scraping_percentage': 0,
+                'analysis_percentage': 0
+            }
     
     async def _execute_dsi_calculation_phase(self) -> Dict[str, Any]:
         """Execute DSI calculation phase for ALL 24 digital landscapes"""
