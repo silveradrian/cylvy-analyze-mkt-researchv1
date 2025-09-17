@@ -223,7 +223,7 @@ class ProductionLandscapeCalculator:
                     market_position = "niche"
                 
                 company_metric = CompanyDSIMetrics(
-                    company_id=company_id,
+                    company_id=UUID(str(company_id)) if not isinstance(company_id, UUID) else company_id,
                     domain=row['primary_domain'],
                     company_name=row['company_name'],
                     total_keywords=row['total_keywords'],
@@ -292,7 +292,7 @@ class ProductionLandscapeCalculator:
                         market_position = EXCLUDED.market_position,
                         created_at = NOW()
                 """,
-                    landscape_id, calculation_date, EntityType.COMPANY.value, company.company_id,
+                    landscape_id, calculation_date, EntityType.COMPANY.value, str(company.company_id),
                     company.company_name, company.domain, company.total_keywords,
                     company.total_pages, company.keyword_coverage, int(company.total_traffic),
                     company.traffic_share, company.avg_relevance, company.avg_funnel_value,
@@ -323,7 +323,7 @@ class ProductionLandscapeCalculator:
                         rank_in_landscape = EXCLUDED.rank_in_landscape,
                         created_at = NOW()
                 """,
-                    landscape_id, calculation_date, EntityType.PAGE.value, page.page_id,
+                    landscape_id, calculation_date, EntityType.PAGE.value, str(page.page_id),
                     getattr(page, 'title', ''), getattr(page, 'domain', ''), getattr(page, 'url', ''),
                     getattr(page, 'total_keywords', 0), 1, getattr(page, 'keyword_coverage', 0),
                     int(getattr(page, 'total_traffic', 0)), getattr(page, 'traffic_share', 0),
