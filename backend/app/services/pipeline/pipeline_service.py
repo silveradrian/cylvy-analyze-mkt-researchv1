@@ -2127,19 +2127,21 @@ class PipelineService:
         """Check content scraping and analysis completeness for pipeline"""
         try:
             async with self.db.acquire() as conn:
-                # Get total URLs from SERP results
+                # Get total URLs from SERP results (excluding video URLs which are handled separately)
                 total_urls = await conn.fetchval("""
                     SELECT COUNT(DISTINCT url)
                     FROM serp_results
                     WHERE pipeline_execution_id = $1
+                    AND serp_type IN ('organic', 'news')  -- Exclude video URLs
                 """, str(pipeline_id))
                 
-                # Get scraped URLs
+                # Get scraped URLs (for content types that should be scraped)
                 scraped_urls = await conn.fetchval("""
                     SELECT COUNT(DISTINCT sc.url)
                     FROM scraped_content sc
                     INNER JOIN serp_results sr ON sr.url = sc.url
                     WHERE sr.pipeline_execution_id = $1
+                    AND sr.serp_type IN ('organic', 'news')  -- Match scraping filter
                     AND sc.status = 'completed'
                 """, str(pipeline_id))
                 
@@ -2149,6 +2151,7 @@ class PipelineService:
                     FROM optimized_content_analysis oca
                     INNER JOIN serp_results sr ON sr.url = oca.url
                     WHERE sr.pipeline_execution_id = $1
+                    AND sr.serp_type IN ('organic', 'news')  -- Match scraping filter
                 """, str(pipeline_id))
                 
                 scraping_percentage = (scraped_urls / total_urls * 100) if total_urls > 0 else 0
