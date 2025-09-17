@@ -456,13 +456,18 @@ class PipelineService:
                 # Get content URLs (for scraping)
                 content_result = await conn.fetch(
                     """
-                    SELECT DISTINCT url, MIN(position) as min_position
+                    SELECT 
+                        url, 
+                        MIN(position) as min_position,
+                        COUNT(*) as serp_appearances
                     FROM serp_results 
                     WHERE pipeline_execution_id = $1
                     AND serp_type IN ('organic', 'news')
                     AND url IS NOT NULL
                     GROUP BY url
-                    ORDER BY MIN(position)
+                    ORDER BY 
+                        serp_appearances DESC,  -- Most important pages first
+                        min_position ASC
                     """,
                     pipeline_id
                 )
@@ -1020,9 +1025,9 @@ class PipelineService:
                 content_analysis_result = result.phase_results.get(PipelinePhase.CONTENT_ANALYSIS, {})
                 content_stats = await self._check_content_completeness(pipeline_id)
                 
-                # Check scraping completeness (90% OR substantial absolute count)
+                # Check scraping completeness (80% OR substantial absolute count)
                 has_substantial_content = (
-                    content_stats['scraping_percentage'] >= 90.0 or 
+                    content_stats['scraping_percentage'] >= 80.0 or 
                     content_stats['scraped_urls'] >= 5000  # 5000+ scraped URLs is substantial
                 )
                 
@@ -1031,15 +1036,15 @@ class PipelineService:
                     dsi_skip_reasons.append(
                         f"Content scraping only {content_stats['scraping_percentage']:.1f}% complete "
                         f"({content_stats['scraped_urls']}/{content_stats['total_urls']} URLs). "
-                        f"Need ≥90% OR ≥5000 URLs for DSI calculation."
+                        f"Need ≥80% OR ≥5000 URLs for DSI calculation."
                     )
-                # Check analysis completeness (90% tolerance of scraped content)
-                elif content_stats['analysis_percentage'] < 90.0:
+                # Check analysis completeness (80% tolerance of scraped content)
+                elif content_stats['analysis_percentage'] < 80.0:
                     dsi_dependencies_met = False
                     dsi_skip_reasons.append(
                         f"Content analysis only {content_stats['analysis_percentage']:.1f}% complete "
                         f"({content_stats['analyzed_urls']}/{content_stats['scraped_urls']} scraped URLs). "
-                        f"Need ≥90% for DSI calculation."
+                        f"Need ≥80% for DSI calculation."
                     )
                 else:
                     logger.info(f"Content scraping {content_stats['scraping_percentage']:.1f}% and "
@@ -1050,9 +1055,9 @@ class PipelineService:
                 company_enrichment_result = result.phase_results.get(PipelinePhase.COMPANY_ENRICHMENT_SERP, {})
                 enrichment_stats = await self._check_enrichment_completeness(pipeline_id)
                 
-                # Require 90% of domains OR substantial absolute count (flexible for large datasets)
+                # Require 80% of domains OR substantial absolute count (flexible for large datasets)
                 has_substantial_enrichment = (
-                    enrichment_stats['enrichment_percentage'] >= 90.0 or 
+                    enrichment_stats['enrichment_percentage'] >= 80.0 or 
                     enrichment_stats['enriched_domains'] >= 1000  # 1000+ domains is substantial
                 )
                 
@@ -1061,7 +1066,7 @@ class PipelineService:
                     dsi_skip_reasons.append(
                         f"Company enrichment only {enrichment_stats['enrichment_percentage']:.1f}% complete "
                         f"({enrichment_stats['enriched_domains']}/{enrichment_stats['total_domains']} domains). "
-                        f"Need ≥90% OR ≥1000 domains for DSI calculation."
+                        f"Need ≥80% OR ≥1000 domains for DSI calculation."
                     )
                 else:
                     logger.info(f"Company enrichment {enrichment_stats['enrichment_percentage']:.1f}% complete - sufficient for DSI")
@@ -2628,14 +2633,21 @@ class PipelineService:
                 # The _filter_unscraped_urls method will handle filtering out already scraped URLs
                 result = await conn.fetch(
                     """
-                    SELECT DISTINCT url, MIN(position) as min_position
+                    SELECT 
+                        url, 
+                        MIN(position) as min_position,
+                        COUNT(*) as serp_appearances,
+                        AVG(position) as avg_position
                     FROM serp_results 
                     WHERE serp_type IN ('organic', 'news')
                     AND url IS NOT NULL 
                     AND url != ''
                     AND pipeline_execution_id = $1
                     GROUP BY url
-                    ORDER BY min_position, url
+                    ORDER BY 
+                        serp_appearances DESC,  -- Most SERP appearances first (most important)
+                        min_position ASC,       -- Then by best position
+                        url
                     """,
                     self.current_pipeline_id
                 )
