@@ -1082,7 +1082,7 @@ class PipelineService:
                 await self._broadcast_status(pipeline_id, "Calculating DSI rankings...")
                 await update_phase_status("dsi_calculation", "running")
                 
-                dsi_result = await self._execute_dsi_calculation_phase()
+                dsi_result = await self._execute_dsi_calculation_phase(pipeline_id)
                 result.phase_results[PipelinePhase.DSI_CALCULATION] = dsi_result
                 await update_phase_status("dsi_calculation", "completed", dsi_result)
             else:
@@ -2202,7 +2202,7 @@ class PipelineService:
                 'analysis_percentage': 0
             }
     
-    async def _execute_dsi_calculation_phase(self) -> Dict[str, Any]:
+    async def _execute_dsi_calculation_phase(self, pipeline_id: UUID) -> Dict[str, Any]:
         """Execute DSI calculation phase for ALL 24 digital landscapes"""
         try:
             # Get all active landscapes
@@ -2226,7 +2226,7 @@ class PipelineService:
             logger.info(f"Calculating comprehensive DSI for all search types using enhanced calculator")
             
             # Calculate overall DSI (includes company and page level with enhanced data)
-            dsi_result = await self.dsi_calculator.calculate_dsi_rankings(str(self.pipeline_execution_id))
+            dsi_result = await self.dsi_calculator.calculate_dsi_rankings(str(pipeline_id))
             
             total_companies_ranked = dsi_result.get('companies_ranked', 0)
             total_pages_ranked = dsi_result.get('pages_ranked', 0)
