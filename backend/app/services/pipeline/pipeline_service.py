@@ -2260,6 +2260,18 @@ class PipelineService:
             total_companies_ranked = dsi_result.get('companies_ranked', 0)
             total_pages_ranked = dsi_result.get('pages_ranked', 0)
             
+            # Calculate landscape-specific page DSI for all 24 landscapes
+            logger.info(f"Calculating landscape-specific page DSI for all digital landscapes")
+            landscape_page_result = await self.dsi_calculator.calculate_all_landscape_page_dsi()
+            
+            logger.info(f"Landscape page DSI results: {landscape_page_result['landscapes_calculated']}/{landscape_page_result['total_landscapes']} landscapes, {landscape_page_result['total_pages_calculated']} total pages")
+            
+            # Calculate landscape-specific keyword DSI for all 24 landscapes
+            logger.info(f"Calculating landscape-specific keyword DSI for all digital landscapes")
+            landscape_keyword_result = await self.dsi_calculator.calculate_all_landscape_keyword_dsi()
+            
+            logger.info(f"Landscape keyword DSI results: {landscape_keyword_result['landscapes_calculated']}/{landscape_keyword_result['total_landscapes']} landscapes, {landscape_keyword_result['total_keywords_calculated']} total keywords")
+            
             # Also calculate landscape-specific metrics for each of the 24 landscapes
             for landscape in landscapes:
                 try:
@@ -2291,6 +2303,8 @@ class PipelineService:
                 'landscapes_processed': len(landscapes),
                 'companies_ranked': total_companies_ranked,
                 'pages_ranked': total_pages_ranked,
+                'landscape_page_dsi': landscape_page_result,
+                'landscape_keyword_dsi': landscape_keyword_result,
                 'landscape_results': landscape_results,
                 'errors': errors,
                 'success_rate': (len(landscapes) - len(errors)) / len(landscapes) if landscapes else 0
