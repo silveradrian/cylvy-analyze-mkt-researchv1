@@ -1,13 +1,18 @@
-# Dashboard Developer Quickstart Guide
+# Multi-Tenant Dashboard Developer Quickstart Guide
 
-## Quick Reference for DSI Dashboard Development
+## Quick Reference for Client-Agnostic DSI Dashboard Development
 
-### Essential Data Tables
+**CRITICAL**: This is a multi-tenant SaaS platform. All queries MUST include `client_id` for data isolation.
+
+### Essential Data Tables (Multi-Tenant)
 
 | Table | Purpose | Key Fields | Entity Types |
 |-------|---------|------------|--------------|
-| `landscape_dsi_metrics` | **PRIMARY DSI DATA** | `dsi_score`, `rank_in_landscape`, `entity_type` | `company`, `page`, `keyword` |
-| `digital_landscapes` | Landscape definitions | `name`, `business_unit`, `region` | - |
+| `landscape_dsi_metrics` | **PRIMARY DSI DATA** | `client_id`, `dsi_score`, `rank_in_landscape`, `entity_type` | `company`, `page`, `keyword` |
+| `client_landscapes` | **Client landscape definitions** | `client_id`, `landscape_name`, `business_unit`, `region` | - |
+| `clients` | **Client configuration** | `client_id`, `name`, `logo_url`, `brand_color_primary` | - |
+| `client_personas` | **Client persona definitions** | `client_id`, `persona_name`, `weight_technical`, `weight_business` | - |
+| `client_metrics` | **Client DSI formulas** | `client_id`, `metric_name`, `component_weights`, `thresholds` | - |
 | `company_profiles` | Company details | `company_name`, `industry`, `employee_count` | - |
 | `keywords` | Keyword master data | `keyword`, `avg_monthly_searches`, `competition_level` | - |
 
@@ -15,7 +20,7 @@
 
 ## Most Common Dashboard Queries
 
-### 1. 🏆 Top Companies in Landscape
+### 1. 🏆 Top Companies in Client Landscape
 
 ```sql
 SELECT 
@@ -26,15 +31,17 @@ SELECT
     ldm.market_position,
     cp.industry
 FROM landscape_dsi_metrics ldm
+JOIN client_landscapes cl ON ldm.landscape_id = cl.id AND ldm.client_id = cl.client_id
 LEFT JOIN company_profiles cp ON ldm.entity_domain = cp.domain  
-WHERE ldm.landscape_id = $1           -- Landscape UUID
+WHERE ldm.client_id = $1              -- CRITICAL: Client isolation
+AND ldm.landscape_id = $2             -- Client's landscape UUID
 AND ldm.entity_type = 'company'
 AND ldm.calculation_date = CURRENT_DATE
 ORDER BY ldm.rank_in_landscape
 LIMIT 20;
 ```
 
-### 2. 📊 Landscape Overview Stats
+### 2. 📊 Client Landscape Overview Stats
 
 ```sql
 SELECT 
@@ -43,7 +50,8 @@ SELECT
     MAX(CASE WHEN entity_type = 'company' THEN dsi_score END) as top_dsi,
     SUM(CASE WHEN entity_type = 'company' THEN estimated_traffic END) as total_traffic
 FROM landscape_dsi_metrics
-WHERE landscape_id = $1
+WHERE client_id = $1                  -- CRITICAL: Client isolation
+AND landscape_id = $2
 AND calculation_date = CURRENT_DATE;
 ```
 

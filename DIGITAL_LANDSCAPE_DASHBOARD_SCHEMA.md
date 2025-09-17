@@ -2,17 +2,145 @@
 
 ## Overview
 
-This documentation provides comprehensive schema information for developing customer-facing digital landscape dashboards. The dashboard service will be a containerized microservice that leverages the main database for DSI (Digital Share Index) analytics and landscape insights.
+This documentation provides comprehensive schema information for developing a **multi-tenant, client-agnostic** digital landscape dashboard platform. The dashboard service is a containerized microservice that serves multiple clients, each with their own configurations, custom metrics, personas, and branding (logo only).
 
 ## Table of Contents
 
-1. [Core DSI Tables](#core-dsi-tables)
-2. [Supporting Data Tables](#supporting-data-tables)
-3. [Authentication Framework](#authentication-framework)
-4. [Data Relationships](#data-relationships)
-5. [Sample Queries](#sample-queries)
-6. [Dashboard API Patterns](#dashboard-api-patterns)
-7. [Performance Considerations](#performance-considerations)
+1. [Multi-Tenant Architecture](#multi-tenant-architecture)
+2. [Client Configuration Tables](#client-configuration-tables)
+3. [Core DSI Tables](#core-dsi-tables)
+4. [Supporting Data Tables](#supporting-data-tables)
+5. [Authentication Framework](#authentication-framework)
+6. [Data Relationships](#data-relationships)
+7. [Sample Queries](#sample-queries)
+8. [Dashboard API Patterns](#dashboard-api-patterns)
+9. [Performance Considerations](#performance-considerations)
+
+---
+
+## Multi-Tenant Architecture
+
+### Client Isolation Strategy
+
+**Data Isolation**: All tables include `client_id` for tenant separation
+**Configuration Isolation**: Each client has custom metrics, personas, and landscapes
+**Branding Isolation**: Client-specific logos and color schemes
+**Permission Isolation**: Role-based access per client
+
+### Client Hierarchy
+
+```
+Platform Level
+├── Client A (e.g., "finastra")
+│   ├── Custom Landscapes (e.g., "Payments", "Banking")
+│   ├── Custom Personas (e.g., "CTO", "Product Manager")  
+│   ├── Custom Metrics (e.g., weighted DSI formula)
+│   └── Brand Assets (logo, colors)
+├── Client B (e.g., "temenos")
+│   ├── Different Landscapes (e.g., "Retail Banking", "Corporate")
+│   └── Different Personas/Metrics
+└── Client C...
+```
+
+---
+
+## Client Configuration Tables
+
+### 1. `clients` - Client Master Data
+
+**Purpose**: Defines each client/tenant with their configuration
+
+| Field | Type | Null | Description | Sample Values |
+|-------|------|------|-------------|---------------|
+| `id` | `varchar` | NO | Client identifier (Primary Key) | `"finastra"`, `"temenos"`, `"fiserv"` |
+| `name` | `varchar` | NO | Client display name | `"Finastra"`, `"Temenos"`, `"Fiserv"` |
+| `industry_focus` | `varchar` | YES | Primary industry | `"Financial Services"`, `"Banking Technology"` |
+| `logo_url` | `varchar` | YES | Client logo URL | `"https://cdn.example.com/finastra-logo.png"` |
+| `brand_color_primary` | `varchar` | YES | Primary brand color | `"#663399"`, `"#0066CC"` |
+| `brand_color_secondary` | `varchar` | YES | Secondary brand color | `"#F0F0F0"` |
+| `timezone` | `varchar` | YES | Client timezone | `"UTC"`, `"America/New_York"` |
+| `date_format` | `varchar` | YES | Preferred date format | `"YYYY-MM-DD"`, `"MM/DD/YYYY"` |
+| `currency` | `varchar` | YES | Default currency | `"USD"`, `"EUR"`, `"GBP"` |
+| `is_active` | `boolean` | NO | Client active status | `true`, `false` |
+| `subscription_tier` | `varchar` | YES | Service tier | `"basic"`, `"premium"`, `"enterprise"` |
+| `max_landscapes` | `integer` | YES | Landscape limit | `10`, `24`, `50` |
+| `max_keywords` | `integer` | YES | Keyword limit | `100`, `500`, `1000` |
+| `created_at` | `timestamp` | NO | Client onboarding date | |
+| `updated_at` | `timestamp` | YES | Last configuration update | |
+
+### 2. `client_personas` - Custom Persona Definitions
+
+**Purpose**: Client-specific persona configurations for DSI calculations
+
+| Field | Type | Null | Description | Sample Values |
+|-------|------|------|-------------|---------------|
+| `id` | `uuid` | NO | Primary key | |
+| `client_id` | `varchar` | NO | Client reference | `"finastra"`, `"temenos"` |
+| `persona_name` | `varchar` | NO | Persona identifier | `"cto"`, `"product_manager"`, `"business_analyst"` |
+| `display_name` | `varchar` | NO | Human-readable name | `"Chief Technology Officer"`, `"Product Manager"` |
+| `description` | `text` | YES | Persona description | `"Technical decision maker focused on architecture"` |
+| `weight_technical` | `numeric` | YES | Technical content weight (0-1) | `0.8`, `0.3`, `0.6` |
+| `weight_business` | `numeric` | YES | Business content weight (0-1) | `0.2`, `0.7`, `0.4` |
+| `weight_strategic` | `numeric` | YES | Strategic content weight (0-1) | `0.6`, `0.8`, `0.5` |
+| `jtbd_preferences` | `jsonb` | YES | JTBD stage preferences | `{"awareness": 0.3, "consideration": 0.5, "purchase": 0.2}` |
+| `content_type_preferences` | `jsonb` | YES | Content type weights | `{"technical": 0.8, "case_study": 0.6, "news": 0.3}` |
+| `is_default` | `boolean` | YES | Default persona for client | `true`, `false` |
+| `created_at` | `timestamp` | NO | Creation time | |
+
+### 3. `client_metrics` - Custom Metric Configurations
+
+**Purpose**: Client-specific DSI calculation formulas and weightings
+
+| Field | Type | Null | Description | Sample Values |
+|-------|------|------|-------------|---------------|
+| `id` | `uuid` | NO | Primary key | |
+| `client_id` | `varchar` | NO | Client reference | `"finastra"` |
+| `metric_name` | `varchar` | NO | Metric identifier | `"company_dsi"`, `"page_relevance"`, `"keyword_opportunity"` |
+| `display_name` | `varchar` | NO | Human-readable name | `"Company DSI Score"`, `"Page Relevance"` |
+| `formula_type` | `varchar` | NO | Calculation type | `"weighted_sum"`, `"multiplicative"`, `"custom"` |
+| `component_weights` | `jsonb` | NO | Weight configuration | `{"keyword_coverage": 0.4, "traffic_share": 0.4, "persona_alignment": 0.2}` |
+| `normalization_method` | `varchar` | YES | Score normalization | `"min_max"`, `"z_score"`, `"percentile"` |
+| `score_range_min` | `numeric` | YES | Minimum score | `0.0`, `0.0` |
+| `score_range_max` | `numeric` | YES | Maximum score | `100.0`, `10.0` |
+| `threshold_leader` | `numeric` | YES | Leader threshold | `20.0`, `8.0` |
+| `threshold_challenger` | `numeric` | YES | Challenger threshold | `10.0`, `4.0` |
+| `threshold_competitor` | `numeric` | YES | Competitor threshold | `3.0`, `1.0` |
+| `description` | `text` | YES | Metric description | `"Measures company dominance in landscape"` |
+| `is_active` | `boolean` | NO | Currently used | `true`, `false` |
+| `created_at` | `timestamp` | NO | Creation time | |
+
+### 4. `client_landscapes` - Client-Specific Landscape Definitions
+
+**Purpose**: Each client can have completely different landscape definitions
+
+| Field | Type | Null | Description | Sample Values |
+|-------|------|------|-------------|---------------|
+| `id` | `uuid` | NO | Primary key | |
+| `client_id` | `varchar` | NO | Client reference | `"finastra"`, `"temenos"` |
+| `landscape_name` | `varchar` | NO | Landscape name | `"Core Banking"`, `"Retail Banking"`, `"Wealth Management"` |
+| `business_unit` | `varchar` | YES | BU mapping | `"Banking"`, `"Payments"`, `"Lending"` |
+| `region` | `varchar` | YES | Geographic focus | `"North America"`, `"EMEA"`, `"APAC"`, `"Global"` |
+| `description` | `text` | YES | Landscape description | `"Core banking platform solutions for retail banks"` |
+| `keyword_selection_criteria` | `jsonb` | YES | Keyword filtering rules | `{"categories": ["banking", "platform"], "exclude_brand": true}` |
+| `content_filters` | `jsonb` | YES | Content inclusion rules | `{"min_word_count": 200, "exclude_domains": ["spam.com"]}` |
+| `custom_weightings` | `jsonb` | YES | Client-specific weightings | `{"persona_weight": 0.3, "traffic_weight": 0.5}` |
+| `is_active` | `boolean` | NO | Currently active | `true`, `false` |
+| `display_order` | `integer` | YES | Dashboard sort order | `1, 2, 3...` |
+| `created_at` | `timestamp` | NO | Creation time | |
+| `updated_at` | `timestamp` | YES | Last modification | |
+
+### 5. `client_landscape_keywords` - Client-Specific Keyword Assignments
+
+**Purpose**: Maps keywords to client-specific landscapes (replaces landscape_keywords)
+
+| Field | Type | Null | Description | Sample Values |
+|-------|------|------|-------------|---------------|
+| `client_id` | `varchar` | NO | Client reference | `"finastra"` |
+| `landscape_id` | `uuid` | NO | Client landscape reference | |
+| `keyword_id` | `uuid` | NO | Keyword reference | |
+| `custom_weight` | `numeric` | YES | Client-specific keyword weight | `1.0`, `1.5`, `0.8` |
+| `custom_category` | `varchar` | YES | Client-specific category | `"core_product"`, `"adjacent"`, `"competitive"` |
+| `created_at` | `timestamp` | NO | Assignment date | |
 
 ---
 
@@ -20,12 +148,13 @@ This documentation provides comprehensive schema information for developing cust
 
 ### 1. `landscape_dsi_metrics` - Primary DSI Data Table
 
-**Purpose**: Stores company, page, and keyword DSI metrics for each digital landscape
+**Purpose**: Stores company, page, and keyword DSI metrics for each client's digital landscapes
 
 | Field | Type | Null | Description | Sample Values |
 |-------|------|------|-------------|---------------|
 | `id` | `uuid` | NO | Primary key | `550e8400-e29b-41d4-a716-446655440000` |
-| `landscape_id` | `uuid` | NO | Reference to digital_landscapes.id | `4e773f12-12b7-4118-b859-faadc0abc60b` |
+| `client_id` | `varchar` | NO | **Client tenant identifier** | `"finastra"`, `"temenos"`, `"fiserv"` |
+| `landscape_id` | `uuid` | NO | Reference to client_landscapes.id | `4e773f12-12b7-4118-b859-faadc0abc60b` |
 | `calculation_date` | `date` | NO | Date of DSI calculation | `2025-09-17` |
 | `entity_type` | `varchar` | NO | Type of entity | `company`, `page`, `keyword` |
 | `entity_id` | `uuid` | NO | Unique identifier for entity | Various UUID formats |
@@ -48,9 +177,10 @@ This documentation provides comprehensive schema information for developing cust
 
 **Indexes:**
 - Primary: `id`
-- Unique: `(landscape_id, calculation_date, entity_type, entity_id)`
-- Performance: `(landscape_id, entity_type, dsi_score DESC)`
-- Performance: `(calculation_date, entity_type)`
+- Unique: `(client_id, landscape_id, calculation_date, entity_type, entity_id)`
+- Performance: `(client_id, landscape_id, entity_type, dsi_score DESC)`
+- Performance: `(client_id, calculation_date, entity_type)`
+- Tenant Isolation: `(client_id, calculation_date)`
 
 ### 2. `historical_page_dsi_snapshots` - Global Page DSI Rankings
 
@@ -183,19 +313,20 @@ This documentation provides comprehensive schema information for developing cust
 ### Primary Relationships for Dashboard Queries
 
 ```sql
--- Get landscape DSI data with company information
+-- Get landscape DSI data with company information (CLIENT-FILTERED)
 SELECT 
     ldm.*,
-    dl.name as landscape_name,
-    dl.business_unit,
-    dl.region,
+    cl.landscape_name,
+    cl.business_unit,
+    cl.region,
     cp.company_name,
     cp.industry,
     cp.employee_count
 FROM landscape_dsi_metrics ldm
-JOIN digital_landscapes dl ON ldm.landscape_id = dl.id
+JOIN client_landscapes cl ON ldm.landscape_id = cl.id AND ldm.client_id = cl.client_id
 LEFT JOIN company_profiles cp ON ldm.entity_domain = cp.domain
-WHERE ldm.entity_type = 'company'
+WHERE ldm.client_id = $1                    -- CRITICAL: Client isolation
+AND ldm.entity_type = 'company'
 AND ldm.calculation_date = CURRENT_DATE
 ORDER BY ldm.dsi_score DESC;
 ```
@@ -259,10 +390,10 @@ Where:
 
 ## Sample Dashboard Queries
 
-### 1. Top Companies by Landscape
+### 1. Top Companies by Landscape (Multi-Tenant)
 
 ```sql
--- Get top 20 companies in a specific landscape
+-- Get top 20 companies in a specific client's landscape
 SELECT 
     ldm.entity_name as company_name,
     ldm.entity_domain as domain,
@@ -278,35 +409,39 @@ SELECT
     cp.industry,
     cp.employee_count
 FROM landscape_dsi_metrics ldm
-JOIN digital_landscapes dl ON ldm.landscape_id = dl.id
+JOIN client_landscapes cl ON ldm.landscape_id = cl.id AND ldm.client_id = cl.client_id
 LEFT JOIN company_profiles cp ON ldm.entity_domain = cp.domain
-WHERE dl.name = 'Payments'  -- Dynamic landscape filter
+WHERE ldm.client_id = $1                    -- CRITICAL: Client isolation
+AND cl.landscape_name = $2                   -- Client's landscape name
 AND ldm.entity_type = 'company'
 AND ldm.calculation_date = CURRENT_DATE
 ORDER BY ldm.rank_in_landscape
 LIMIT 20;
 ```
 
-### 2. Landscape Overview Dashboard
+### 2. Client Landscape Overview Dashboard
 
 ```sql
--- Get overview metrics for all landscapes
+-- Get overview metrics for all client's landscapes
 SELECT 
-    dl.name as landscape_name,
-    dl.business_unit,
-    dl.region,
+    cl.landscape_name,
+    cl.business_unit,
+    cl.region,
+    cl.display_order,
     COUNT(CASE WHEN ldm.entity_type = 'company' THEN 1 END) as total_companies,
     COUNT(CASE WHEN ldm.entity_type = 'page' THEN 1 END) as total_pages,
     COUNT(CASE WHEN ldm.entity_type = 'keyword' THEN 1 END) as total_keywords,
     AVG(CASE WHEN ldm.entity_type = 'company' THEN ldm.dsi_score END) as avg_company_dsi,
     MAX(CASE WHEN ldm.entity_type = 'company' THEN ldm.dsi_score END) as top_company_dsi,
     SUM(CASE WHEN ldm.entity_type = 'company' THEN ldm.estimated_traffic END) as total_landscape_traffic
-FROM digital_landscapes dl
-LEFT JOIN landscape_dsi_metrics ldm ON dl.id = ldm.landscape_id 
+FROM client_landscapes cl
+LEFT JOIN landscape_dsi_metrics ldm ON cl.id = ldm.landscape_id 
+    AND ldm.client_id = cl.client_id
     AND ldm.calculation_date = CURRENT_DATE
-WHERE dl.is_active = true
-GROUP BY dl.id, dl.name, dl.business_unit, dl.region
-ORDER BY total_landscape_traffic DESC;
+WHERE cl.client_id = $1                     -- CRITICAL: Client isolation
+AND cl.is_active = true
+GROUP BY cl.id, cl.landscape_name, cl.business_unit, cl.region, cl.display_order
+ORDER BY cl.display_order, total_landscape_traffic DESC;
 ```
 
 ### 3. Company Deep Dive

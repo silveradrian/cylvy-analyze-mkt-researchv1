@@ -381,18 +381,35 @@ Compare multiple companies across landscapes
 
 ## Authentication Integration
 
-### JWT Token Structure
+### JWT Token Structure (Multi-Tenant)
 
 ```json
 {
   "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "email": "user@company.com",
+  "email": "user@clientcompany.com",
+  "client_id": "client_a",                    // CRITICAL: Client context
+  "client_name": "Client Company Name",
+  "subscription_tier": "enterprise",
   "permissions": {
     "landscapes": ["all"] | ["4e773f12-12b7-4118-b859-faadc0abc60b"],
-    "access_level": "read" | "full",
-    "features": ["export", "alerts", "competitive_intel"]
+    "access_level": "read" | "admin", 
+    "features": ["export", "alerts", "competitive_intel", "custom_personas"],
+    "data_access": {
+      "own_company_data": true,
+      "competitor_data": true,
+      "market_data": true,
+      "historical_data": true
+    }
   },
-  "client_id": "finastra",
+  "persona_preferences": {
+    "default_persona": "cto",               // Client-specific personas
+    "available_personas": ["cto", "product_manager", "analyst"]
+  },
+  "branding": {
+    "logo_url": "https://cdn.example.com/client-logo.png",
+    "primary_color": "#663399",
+    "secondary_color": "#F0F0F0"
+  },
   "exp": 1705123456
 }
 ```
@@ -402,22 +419,54 @@ Compare multiple companies across landscapes
 ```python
 from functools import wraps
 
-def require_landscape_access(landscape_id: str = None):
+def require_client_access(require_admin: bool = False):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
             user = get_current_user()
-            if landscape_id and not user.has_landscape_access(landscape_id):
-                raise HTTPException(403, "Insufficient landscape permissions")
+            
+            # Verify client access
+            if not user.client_id:
+                raise HTTPException(401, "No client context")
+            
+            # Verify admin access if required
+            if require_admin and user.permissions.get('access_level') != 'admin':
+                raise HTTPException(403, "Admin access required")
+            
+            # Add client_id to all database queries
+            kwargs['client_id'] = user.client_id
             return await func(*args, **kwargs)
         return wrapper
     return decorator
 
+def require_landscape_access(func):
+    @wraps(func)
+    async def wrapper(landscape_id: str, client_id: str, user=Depends(get_current_user), *args, **kwargs):
+        # Verify landscape belongs to client
+        async with db_pool.acquire() as conn:
+            landscape_exists = await conn.fetchval("""
+                SELECT EXISTS(
+                    SELECT 1 FROM client_landscapes 
+                    WHERE id = $1 AND client_id = $2 AND is_active = true
+                )
+            """, landscape_id, client_id)
+            
+            if not landscape_exists:
+                raise HTTPException(404, "Landscape not found for client")
+        
+        return await func(landscape_id, client_id, user, *args, **kwargs)
+    return wrapper
+
 # Usage
 @router.get("/landscapes/{landscape_id}/overview")
-@require_landscape_access()
-async def get_landscape_overview(landscape_id: str, user=Depends(get_current_user)):
-    # Implementation
+@require_client_access()
+@require_landscape_access
+async def get_landscape_overview(
+    landscape_id: str, 
+    client_id: str,
+    user=Depends(get_current_user)
+):
+    # All queries automatically include client_id filter
     pass
 ```
 

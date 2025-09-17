@@ -1,8 +1,8 @@
-# Digital Landscape Dashboard Project Overview
+# Multi-Tenant Digital Landscape Dashboard Platform
 
 ## Project Summary
 
-The Digital Landscape Dashboard is a customer-facing analytics platform that provides comprehensive DSI (Digital Share Index) insights across 24 digital landscapes. Built as a containerized microservice, it leverages the main pipeline database to deliver real-time competitive intelligence and market positioning analytics.
+The Digital Landscape Dashboard is a **client-agnostic, multi-tenant SaaS platform** that provides comprehensive DSI (Digital Share Index) insights. Each client can have completely different digital landscapes, custom metrics, personas, and configurations. Built as a containerized microservice, it serves multiple clients with isolated data and customized analytics experiences.
 
 ---
 
