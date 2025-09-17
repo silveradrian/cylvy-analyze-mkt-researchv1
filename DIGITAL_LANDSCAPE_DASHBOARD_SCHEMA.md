@@ -87,26 +87,41 @@ Platform Level
 | `is_default` | `boolean` | YES | Default persona for client | `true`, `false` |
 | `created_at` | `timestamp` | NO | Creation time | |
 
-### 3. `client_metrics` - Custom Metric Configurations
+### 3. `client_dimensions` - Custom Dimension Definitions
 
-**Purpose**: Client-specific DSI calculation formulas and weightings
+**Purpose**: Client-specific custom dimensions for content analysis
 
 | Field | Type | Null | Description | Sample Values |
 |-------|------|------|-------------|---------------|
 | `id` | `uuid` | NO | Primary key | |
 | `client_id` | `varchar` | NO | Client reference | `"finastra"` |
-| `metric_name` | `varchar` | NO | Metric identifier | `"company_dsi"`, `"page_relevance"`, `"keyword_opportunity"` |
-| `display_name` | `varchar` | NO | Human-readable name | `"Company DSI Score"`, `"Page Relevance"` |
-| `formula_type` | `varchar` | NO | Calculation type | `"weighted_sum"`, `"multiplicative"`, `"custom"` |
-| `component_weights` | `jsonb` | NO | Weight configuration | `{"keyword_coverage": 0.4, "traffic_share": 0.4, "persona_alignment": 0.2}` |
-| `normalization_method` | `varchar` | YES | Score normalization | `"min_max"`, `"z_score"`, `"percentile"` |
-| `score_range_min` | `numeric` | YES | Minimum score | `0.0`, `0.0` |
-| `score_range_max` | `numeric` | YES | Maximum score | `100.0`, `10.0` |
-| `threshold_leader` | `numeric` | YES | Leader threshold | `20.0`, `8.0` |
-| `threshold_challenger` | `numeric` | YES | Challenger threshold | `10.0`, `4.0` |
-| `threshold_competitor` | `numeric` | YES | Competitor threshold | `3.0`, `1.0` |
-| `description` | `text` | YES | Metric description | `"Measures company dominance in landscape"` |
+| `dimension_name` | `varchar` | NO | Dimension identifier | `"product_relevance"`, `"market_segment"`, `"use_case_type"` |
+| `display_name` | `varchar` | NO | Human-readable name | `"Product Relevance"`, `"Market Segment"` |
+| `dimension_type` | `varchar` | NO | Analysis type | `"categorical"`, `"score"`, `"boolean"` |
+| `possible_values` | `jsonb` | YES | Allowed values for categorical | `["core_banking", "payments", "lending"]` |
+| `score_range_min` | `numeric` | YES | Min score (for score type) | `1.0`, `0.0` |
+| `score_range_max` | `numeric` | YES | Max score (for score type) | `10.0`, `100.0` |
+| `description` | `text` | YES | Dimension description | `"Relevance to core banking products"` |
+| `analysis_prompt` | `text` | YES | AI analysis prompt | `"Rate content relevance to core banking on 1-10 scale"` |
 | `is_active` | `boolean` | NO | Currently used | `true`, `false` |
+| `created_at` | `timestamp` | NO | Creation time | |
+
+### 3. `client_serp_config` - SERP Collection Configuration
+
+**Purpose**: Client-specific SERP collection settings
+
+| Field | Type | Null | Description | Sample Values |
+|-------|------|------|-------------|---------------|
+| `id` | `uuid` | NO | Primary key | |
+| `client_id` | `varchar` | NO | Client reference | `"finastra"` |
+| `serp_types` | `jsonb` | NO | Enabled SERP types | `["organic", "news", "video"]` |
+| `max_position` | `integer` | NO | Maximum SERP position | `20`, `50`, `100` |
+| `countries` | `jsonb` | NO | Target countries | `["US", "UK", "DE", "SA", "VN"]` |
+| `scheduling_organic` | `varchar` | YES | Organic collection frequency | `"daily"`, `"weekly"` |
+| `scheduling_news` | `varchar` | YES | News collection frequency | `"hourly"`, `"daily"` |
+| `scheduling_video` | `varchar` | YES | Video collection frequency | `"weekly"`, `"monthly"` |
+| `exclude_domains` | `jsonb` | YES | Domains to exclude | `["spam.com", "lowquality.net"]` |
+| `include_brand_terms` | `boolean` | YES | Include brand keywords | `true`, `false` |
 | `created_at` | `timestamp` | NO | Creation time | |
 
 ### 4. `client_landscapes` - Client-Specific Landscape Definitions
@@ -138,7 +153,6 @@ Platform Level
 | `client_id` | `varchar` | NO | Client reference | `"finastra"` |
 | `landscape_id` | `uuid` | NO | Client landscape reference | |
 | `keyword_id` | `uuid` | NO | Keyword reference | |
-| `custom_weight` | `numeric` | YES | Client-specific keyword weight | `1.0`, `1.5`, `0.8` |
 | `custom_category` | `varchar` | YES | Client-specific category | `"core_product"`, `"adjacent"`, `"competitive"` |
 | `created_at` | `timestamp` | NO | Assignment date | |
 
@@ -146,7 +160,7 @@ Platform Level
 
 ## Core DSI Tables
 
-### 1. `landscape_dsi_metrics` - Primary DSI Data Table
+### 6. `landscape_dsi_metrics` - Primary DSI Data Table
 
 **Purpose**: Stores company, page, and keyword DSI metrics for each client's digital landscapes
 
@@ -182,7 +196,7 @@ Platform Level
 - Performance: `(client_id, calculation_date, entity_type)`
 - Tenant Isolation: `(client_id, calculation_date)`
 
-### 2. `historical_page_dsi_snapshots` - Global Page DSI Rankings
+### 7. `historical_page_dsi_snapshots` - Global Page DSI Rankings
 
 **Purpose**: Global page-level DSI rankings across all landscapes (not landscape-specific)
 
@@ -220,7 +234,7 @@ Platform Level
 | `is_active` | `boolean` | YES | Currently active in SERPs | `true`, `false` |
 | `created_at` | `timestamp` | NO | Record creation | |
 
-### 3. `dsi_calculations` - Historical Company DSI Calculations
+### 8. `dsi_calculations` - Historical Company DSI Calculations
 
 **Purpose**: Historical company-level DSI calculations (legacy format, less detailed than landscape_dsi_metrics)
 
@@ -239,7 +253,7 @@ Platform Level
 
 ## Supporting Data Tables
 
-### 4. `digital_landscapes` - Landscape Definitions
+### 9. `digital_landscapes` - Landscape Definitions (Legacy)
 
 **Purpose**: Defines the 24 digital landscapes and their configurations
 
@@ -254,9 +268,9 @@ Platform Level
 | `created_at` | `timestamp` | NO | Creation time | |
 | `updated_at` | `timestamp` | YES | Last update | |
 
-### 5. `landscape_keywords` - Keyword Assignments
+### 10. `landscape_keywords` - Keyword Assignments (Legacy)
 
-**Purpose**: Maps keywords to specific landscapes
+**Purpose**: Maps keywords to specific landscapes (replaced by client_landscape_keywords)
 
 | Field | Type | Null | Description | Sample Values |
 |-------|------|------|-------------|---------------|
@@ -264,7 +278,7 @@ Platform Level
 | `keyword_id` | `uuid` | NO | Keyword reference | |
 | `created_at` | `timestamp` | NO | Assignment date | |
 
-### 6. `keywords` - Keyword Master Data
+### 11. `keywords` - Keyword Master Data
 
 **Purpose**: Master keyword data with all dimensions and metrics
 
@@ -288,7 +302,7 @@ Platform Level
 | `is_active` | `boolean` | YES | Currently active | `true` |
 | `created_at` | `timestamp` | NO | Creation time | |
 
-### 7. `company_profiles` - Company Master Data
+### 12. `company_profiles` - Company Master Data
 
 **Purpose**: Enriched company information for companies appearing in DSI calculations
 
