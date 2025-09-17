@@ -24,8 +24,9 @@ from pydantic import BaseModel
 from app.core.database import db_pool
 from app.services.robustness.state_tracker import StateStatus
 from app.services.serp.unified_serp_collector import UnifiedSERPCollector
-from app.services.enrichment.company_enricher import CompanyEnricher
+from app.services.enrichment.enhanced_company_enricher import EnhancedCompanyEnricher
 from app.services.enrichment.video_enricher import OptimizedVideoEnricher as VideoEnricher
+from app.services.enrichment.channel_company_resolver import ChannelCompanyResolver
 from app.services.scraping.web_scraper import WebScraper
 # from app.services.analysis.content_analyzer import ContentAnalyzer  # Moved to redundant
 from app.services.metrics.simplified_dsi_calculator import SimplifiedDSICalculator as DSICalculator
@@ -34,6 +35,7 @@ from app.services.historical_data_service import HistoricalDataService
 from app.services.landscape.production_landscape_calculator import ProductionLandscapeCalculator
 from app.services.websocket_service import WebSocketService
 from app.services.pipeline.pipeline_phases import PipelinePhaseManager
+from app.services.pipeline.flexible_phase_completion import FlexiblePhaseCompletion
 
 
 class PipelineMode(str, Enum):
@@ -44,15 +46,13 @@ class PipelineMode(str, Enum):
 
 
 class PipelinePhase(str, Enum):
-    KEYWORD_METRICS_ENRICHMENT = "keyword_metrics_enrichment"
+    KEYWORD_METRICS = "keyword_metrics"
     SERP_COLLECTION = "serp_collection"
-    COMPANY_ENRICHMENT = "company_enrichment"
-    VIDEO_ENRICHMENT = "video_enrichment"
+    COMPANY_ENRICHMENT_SERP = "company_enrichment_serp"
+    YOUTUBE_ENRICHMENT = "youtube_enrichment"
     CONTENT_SCRAPING = "content_scraping"
     CONTENT_ANALYSIS = "content_analysis"
     DSI_CALCULATION = "dsi_calculation"
-    HISTORICAL_SNAPSHOT = "historical_snapshot"
-    LANDSCAPE_DSI_CALCULATION = "landscape_dsi_calculation"
 
 
 class PipelineStatus(str, Enum):
@@ -100,6 +100,9 @@ class PipelineConfig(BaseModel):
     serp_batch_id: Optional[str] = None  # ScaleSERP batch ID for webhook-triggered pipelines
     serp_result_set_id: Optional[int] = None  # ScaleSERP result set ID for webhook-triggered pipelines
     serp_download_links: Optional[Dict[str, Any]] = None  # ScaleSERP download links for webhook-triggered pipelines
+    
+    # SERP reuse configuration
+    reuse_serp_from_pipeline_id: Optional[UUID] = None  # Copy SERP results from previous successful pipeline
 
 
 class PipelineResult(BaseModel):
@@ -172,17 +175,32 @@ class PipelineService:
             circuit_breaker=self.circuit_breaker_manager.get_breaker("scale_serp") if self.circuit_breaker_manager else None,
             retry_manager=self.retry_manager
         )
-        self.company_enricher = CompanyEnricher(settings, db)
+        # Enable circuit breaker for company enrichment to prevent cascading failures
+        self.company_enricher = EnhancedCompanyEnricher(
+            settings, db, 
+            circuit_breaker=self.circuit_breaker_manager.get_breaker(
+                "company_enrichment",
+                failure_threshold=10,
+                success_threshold=5,
+                timeout_seconds=300
+            ) if self.circuit_breaker_manager else None,
+            retry_manager=self.retry_manager
+        )
         self.video_enricher = VideoEnricher(db, settings)
         self.web_scraper = WebScraper(settings, db)
         # Use Optimized Unified Analyzer for reduced verbosity and better performance
         from app.services.analysis.optimized_unified_analyzer import OptimizedUnifiedAnalyzer
         self.content_analyzer = OptimizedUnifiedAnalyzer(settings, db)
+        # Concurrent content analyzer for real-time analysis
+        from app.services.analysis.concurrent_content_analyzer import ConcurrentContentAnalyzer
+        self.concurrent_content_analyzer = ConcurrentContentAnalyzer(settings, db)
         self.dsi_calculator = DSICalculator(settings, db)
         self.google_ads_service = SimplifiedGoogleAdsService()
         self.landscape_calculator = ProductionLandscapeCalculator(db)
         self.historical_service = HistoricalDataService(db, settings)
         self.websocket_service = WebSocketService()
+        # Background channel resolver
+        self.channel_resolver = ChannelCompanyResolver(db=self.db, settings=self.settings)
         
         # Pipeline state
         self._active_pipelines: Dict[UUID, PipelineResult] = {}
@@ -218,6 +236,27 @@ class PipelineService:
             "dsi_calculation",
             self._execute_dsi_calculation_phase
         )
+
+    async def _get_phase_statuses(self, pipeline_id: UUID) -> Dict[str, str]:
+        """Fetch current statuses for all phases for a given pipeline."""
+        try:
+            async with self.db.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT phase_name, status::text AS status
+                    FROM pipeline_phase_status
+                    WHERE pipeline_execution_id = $1
+                    """,
+                    pipeline_id,
+                )
+                return {row["phase_name"]: row["status"] for row in rows}
+        except Exception as e:
+            logger.warning(f"Failed to fetch phase statuses for {pipeline_id}: {e}")
+            return {}
+
+    async def _is_phase_completed(self, pipeline_id: UUID, phase_name: str) -> bool:
+        statuses = await self._get_phase_statuses(pipeline_id)
+        return statuses.get(phase_name) == "completed"
     
     async def start_pipeline(
         self,
@@ -266,6 +305,28 @@ class PipelineService:
         
         logger.info(f"Pipeline {pipeline_id} started in {mode} mode")
         return pipeline_id
+
+    async def resume_pipeline(self, pipeline_id: UUID, config: Optional[PipelineConfig] = None) -> bool:
+        """Resume an existing pipeline from where it left off."""
+        # Load prior state
+        prior = await self._load_pipeline_state(pipeline_id)
+        if not prior:
+            raise ValueError(f"Pipeline {pipeline_id} not found")
+
+        # Prepare config if not provided (basic default)
+        if config is None:
+            config = PipelineConfig()
+
+        # Put in active set and mark running
+        async with self._lock:
+            self._active_pipelines[pipeline_id] = prior
+        prior.status = PipelineStatus.RUNNING
+        await self._save_pipeline_state(prior)
+
+        # Continue execution in background; completed phases will be skipped by gating checks
+        asyncio.create_task(self._execute_pipeline(pipeline_id, config))
+        logger.info(f"Resuming pipeline {pipeline_id}")
+        return True
     
     async def get_pipeline_status(self, pipeline_id: UUID) -> Optional[PipelineResult]:
         """Get current pipeline status"""
@@ -291,48 +352,130 @@ class PipelineService:
         logger.info(f"Pipeline {pipeline_id} cancelled")
         return True
     
+    async def _copy_serp_from_pipeline(self, config: PipelineConfig, current_pipeline_id: UUID, source_pipeline_id: UUID) -> Optional[Dict[str, Any]]:
+        """Copy SERP results from a previous successful pipeline"""
+        try:
+            async with self.db.acquire() as conn:
+                # First, verify the source pipeline has completed SERP collection successfully
+                source_pipeline = await conn.fetchrow(
+                    """
+                    SELECT status, serp_results_collected, started_at
+                    FROM pipeline_executions 
+                    WHERE id = $1
+                    """, 
+                    source_pipeline_id
+                )
+                
+                if not source_pipeline:
+                    logger.error(f"Source pipeline {source_pipeline_id} not found")
+                    return None
+                    
+                if source_pipeline['serp_results_collected'] == 0:
+                    logger.error(f"Source pipeline {source_pipeline_id} has no SERP results to copy")
+                    return None
+                
+                logger.info(f"🔄 Copying {source_pipeline['serp_results_collected']} SERP results from pipeline {source_pipeline_id}")
+                
+                # Copy SERP results with new pipeline reference
+                copied_count = await conn.fetchval(
+                    """
+                    INSERT INTO serp_results (
+                        keyword, region, content_type, rank, title, url, description,
+                        displayed_url, favicon_url, snippet, is_sponsored,
+                        additional_data, scraped_at, created_at, pipeline_execution_id
+                    )
+                    SELECT 
+                        sr.keyword, sr.region, sr.content_type, sr.rank, sr.title, sr.url, sr.description,
+                        sr.displayed_url, sr.favicon_url, sr.snippet, sr.is_sponsored,
+                        sr.additional_data, sr.scraped_at, NOW(), $2
+                    FROM serp_results sr
+                    WHERE sr.pipeline_execution_id = $1
+                    RETURNING (SELECT COUNT(*) FROM (SELECT 1) AS dummy)
+                    """,
+                    source_pipeline_id, current_pipeline_id
+                )
+                
+                if copied_count > 0:
+                    logger.info(f"✅ Successfully copied {copied_count} SERP results")
+                    
+                    return {
+                        "total_results": copied_count,
+                        "keywords_processed": len(config.keywords or []),
+                        "batches_completed": 1,
+                        "status": "reused_from_pipeline",
+                        "source_pipeline_id": str(source_pipeline_id)
+                    }
+                else:
+                    logger.warning(f"⚠️ No SERP results found to copy from pipeline {source_pipeline_id}")
+                    return None
+                
+        except Exception as e:
+            logger.error(f"Failed to copy SERP results from pipeline {source_pipeline_id}: {e}")
+            return None
+    
     async def _get_existing_serp_results(self, config: PipelineConfig, pipeline_id: UUID) -> Dict[str, Any]:
         """Get count of existing SERP results for webhook-triggered pipelines"""
         try:
             async with self.db.acquire() as conn:
-                # Get count of recent SERP results
+                # Get count of SERP results for this pipeline
                 count_result = await conn.fetchrow(
                     """
                     SELECT COUNT(*) as total_results,
                            COUNT(DISTINCT k.keyword) as keywords_processed,
                            COUNT(DISTINCT sr.domain) as unique_domains,
-                           COUNT(DISTINCT CASE WHEN sr.url LIKE '%youtube.com%' THEN sr.url END) as video_urls
+                           COUNT(DISTINCT CASE WHEN sr.url LIKE '%youtube.com%' THEN sr.url END) as video_urls,
+                           COUNT(DISTINCT CASE WHEN sr.serp_type IN ('organic', 'news') THEN sr.url END) as content_urls
                     FROM serp_results sr
-                    JOIN keywords k ON k.id = sr.keyword_id
-                    WHERE sr.search_date > CURRENT_DATE - INTERVAL '24 hours'
+                    LEFT JOIN keywords k ON k.id = sr.keyword_id
+                    WHERE sr.pipeline_execution_id = $1
                     """,
+                    pipeline_id
                 )
                 
-                # Get unique domains and video URLs
+                # Get unique domains
                 domains_result = await conn.fetch(
                     """
                     SELECT DISTINCT domain 
                     FROM serp_results 
-                    WHERE search_date > CURRENT_DATE - INTERVAL '24 hours'
+                    WHERE pipeline_execution_id = $1
+                    AND domain IS NOT NULL
                     LIMIT 1000
-                    """
+                    """,
+                    pipeline_id
                 )
                 
+                # Get video URLs
                 videos_result = await conn.fetch(
                     """
                     SELECT DISTINCT url 
                     FROM serp_results 
-                    WHERE url LIKE '%youtube.com%'
-                    AND search_date > CURRENT_DATE - INTERVAL '24 hours'
+                    WHERE pipeline_execution_id = $1
+                    AND url LIKE '%youtube.com%'
                     LIMIT 1000
+                    """,
+                    pipeline_id
+                )
+                
+                # Get content URLs (for scraping)
+                content_result = await conn.fetch(
                     """
+                    SELECT DISTINCT url, MIN(position) as min_position
+                    FROM serp_results 
+                    WHERE pipeline_execution_id = $1
+                    AND serp_type IN ('organic', 'news')
+                    AND url IS NOT NULL
+                    GROUP BY url
+                    ORDER BY MIN(position)
+                    """,
+                    pipeline_id
                 )
                 
                 return {
-                    'total_results': count_result['total_results'],
-                    'keywords_processed': count_result['keywords_processed'],
+                    'total_results': count_result['total_results'] or 0,
+                    'keywords_processed': count_result['keywords_processed'] or 0,
                     'unique_domains': [row['domain'] for row in domains_result],
-                    'video_urls': [row['url'] for row in videos_result]
+                    'video_urls': [row['url'] for row in videos_result],
+                    'content_urls': [row['url'] for row in content_result]
                 }
         except Exception as e:
             logger.error(f"Failed to get existing SERP results: {str(e)}")
@@ -340,7 +483,8 @@ class PipelineService:
                 'total_results': 0,
                 'keywords_processed': 0,
                 'unique_domains': [],
-                'video_urls': []
+                'video_urls': [],
+                'content_urls': []
             }
     
     async def _update_pipeline_metrics(self, execution_id: str, **metrics):
@@ -373,36 +517,178 @@ class PipelineService:
         result = self._active_pipelines[pipeline_id]
         
         try:
+            # Ensure downstream storage (e.g., scraped_content) can associate rows to this run
+            try:
+                self.current_pipeline_id = pipeline_id
+            except Exception:
+                pass
+            # Propagate project/client context for downstream services (e.g., analyzer)
+            try:
+                client_id = getattr(config, 'client_id', None)
+                # Don't use 'system' as project_id - it's not a valid UUID
+                if client_id and client_id != 'system':
+                    self.current_project_id = client_id
+                else:
+                    self.current_project_id = None
+            except Exception:
+                self.current_project_id = None
             result.status = PipelineStatus.RUNNING
             await self._save_pipeline_state(result)
             await self._broadcast_status(pipeline_id, "Pipeline started")
             
+            # Initialize phase tracking - using PhaseOrchestrator phase names
+            enabled_phases = []
+            if config.enable_keyword_metrics:
+                enabled_phases.append("keyword_metrics")
+            if config.enable_serp_collection:
+                enabled_phases.append("serp_collection")
+            if config.enable_company_enrichment:
+                enabled_phases.append("company_enrichment_serp")
+            if config.enable_video_enrichment:
+                enabled_phases.append("youtube_enrichment")
+            if config.enable_content_scraping:
+                enabled_phases.append("content_scraping")
+            if config.enable_content_analysis:
+                enabled_phases.append("content_analysis")
+            # DSI calculation is always enabled as part of content analysis
+            if config.enable_content_analysis:
+                enabled_phases.append("dsi_calculation")
+            
+            # Initialize pipeline phases in the database
+            await self.phase_orchestrator.initialize_pipeline(
+                pipeline_id,
+                enabled_phases,
+                config.dict()
+            )
+            logger.info(f"Initialized {len(enabled_phases)} phases for pipeline {pipeline_id}")
+            
+            # Helper to update phase status
+            async def update_phase_status(phase_name: str, status: str, result: dict = None):
+                """Update phase status in database"""
+                try:
+                    # Safely serialize result data (handle Decimal, UUID, sets, etc.)
+                    def _json_default(value):
+                        try:
+                            from decimal import Decimal
+                            from uuid import UUID
+                            if isinstance(value, Decimal):
+                                return float(value)
+                            if isinstance(value, UUID):
+                                return str(value)
+                            if isinstance(value, set):
+                                return list(value)
+                        except Exception:
+                            pass
+                        # Fallback to string representation for unknown objects
+                        return str(value)
+                    serialized_result = json.dumps(result, default=_json_default) if result else None
+
+                    async with self.db.acquire() as conn:
+                        await conn.execute(
+                            """
+                            UPDATE pipeline_phase_status
+                            SET status = $3::varchar,
+                                updated_at = NOW(),
+                                result_data = $4,
+                                started_at = CASE WHEN $3 = 'running' THEN NOW() ELSE started_at END,
+                                completed_at = CASE WHEN $3 IN ('completed', 'failed') THEN NOW() ELSE completed_at END
+                            WHERE pipeline_execution_id = $1 AND phase_name = $2
+                            """,
+                            pipeline_id,  # Keep as UUID
+                            phase_name,
+                            status,
+                            serialized_result
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to update phase status: {e}")
+            
             # Phase 1: Keyword Metrics Enrichment (if enabled)
             if config.enable_keyword_metrics:
+                result.current_phase = "keyword_metrics"
                 logger.info(f"🎯 Pipeline {pipeline_id}: Starting keyword metrics enrichment")
                 logger.info(f"🎯 Config.enable_keyword_metrics = {config.enable_keyword_metrics}")
                 await self._broadcast_status(pipeline_id, "Enriching keyword metrics...")
+                await update_phase_status("keyword_metrics", "running")
                 
                 logger.info(f"🎯 About to call _execute_keyword_metrics_enrichment_phase...")
                 keyword_metrics_result = await self._execute_keyword_metrics_enrichment_phase(config, pipeline_id)
                 logger.info(f"🎯 Keyword metrics phase returned: {keyword_metrics_result}")
                 
-                result.phase_results[PipelinePhase.KEYWORD_METRICS_ENRICHMENT] = keyword_metrics_result
+                result.phase_results[PipelinePhase.KEYWORD_METRICS] = keyword_metrics_result
                 result.keywords_with_metrics = keyword_metrics_result.get('keywords_with_metrics', 0)
+                await update_phase_status("keyword_metrics", "completed", keyword_metrics_result)
                 logger.info(f"🎯 Phase 1 complete, moving to Phase 2...")
             else:
                 logger.info(f"🎯 Keyword metrics enrichment DISABLED in config")
             
-            # Phase 2: SERP Collection
+            # Phase 2: SERP Collection (skip if already completed or reusing from another pipeline)
             if config.enable_serp_collection:
-                logger.info(f"🔍 PIPELINE PHASE 2: Starting SERP collection for pipeline {pipeline_id}")
-                logger.info(f"🔍 PIPELINE: About to call _execute_serp_collection_phase with config: {config}")
-                await self._broadcast_status(pipeline_id, "Collecting SERP data...")
-                
-                logger.info(f"🔍 CALLING: _execute_serp_collection_phase(config, {pipeline_id})")
-                serp_result = await self._execute_serp_collection_phase(config, pipeline_id)
-                logger.info(f"🔍 SERP PHASE COMPLETED: {serp_result}")
+                # Check if SERP collection already completed (e.g., on resume)
+                serp_already_completed = False
+                try:
+                    async with self.db.acquire() as conn:
+                        existing = await conn.fetchval(
+                            """
+                            SELECT status::text FROM pipeline_phase_status
+                            WHERE pipeline_execution_id = $1 AND phase_name = 'serp_collection'
+                            """,
+                            pipeline_id,
+                        )
+                        serp_already_completed = (existing == 'completed')
+                except Exception as e:
+                    logger.warning(f"Failed to read serp_collection status: {e}")
+
+                # Check if we should reuse SERP from another pipeline
+                if config.reuse_serp_from_pipeline_id and not serp_already_completed:
+                    logger.info(f"🔄 PIPELINE PHASE 2: Reusing SERP data from pipeline {config.reuse_serp_from_pipeline_id}")
+                    await self._broadcast_status(pipeline_id, "Reusing SERP data from previous pipeline...")
+                    await update_phase_status("serp_collection", "running")
+                    
+                    serp_result = await self._copy_serp_from_pipeline(config, pipeline_id, config.reuse_serp_from_pipeline_id)
+                    
+                    if serp_result:
+                        await update_phase_status("serp_collection", "completed")
+                        logger.info(f"✅ SERP data reused successfully from pipeline {config.reuse_serp_from_pipeline_id}")
+                    else:
+                        logger.warning(f"⚠️ Failed to reuse SERP data, falling back to fresh collection")
+                        await self._broadcast_status(pipeline_id, "Fallback: Collecting fresh SERP data...")
+                        serp_result = await self._execute_serp_collection_phase(config, pipeline_id)
+                elif serp_already_completed:
+                    logger.info(f"🔍 PIPELINE PHASE 2: Skipping SERP collection for pipeline {pipeline_id} (already completed)")
+                    # Load existing SERP results from the database
+                    serp_result = await self._get_existing_serp_results(config, pipeline_id)
+                else:
+                    result.current_phase = "serp_collection"
+                    logger.info(f"🔍 PIPELINE PHASE 2: Starting fresh SERP collection for pipeline {pipeline_id}")
+                    logger.info(f"🔍 PIPELINE: About to call _execute_serp_collection_phase with config: {config}")
+                    await self._broadcast_status(pipeline_id, "Collecting SERP data...")
+                    await update_phase_status("serp_collection", "running")
+                    
+                    logger.info(f"🔍 CALLING: _execute_serp_collection_phase(config, {pipeline_id})")
+                    serp_result = await self._execute_serp_collection_phase(config, pipeline_id)
+                # Log only summary counts to avoid huge payloads in logs
+                try:
+                    serp_log = {
+                        'keywords_processed': serp_result.get('keywords_processed', 0),
+                        'total_results': serp_result.get('total_results', serp_result.get('total_results_stored', 0)),
+                        'total_results_stored': serp_result.get('total_results_stored', serp_result.get('total_results', 0)),
+                        'discrete_batches': serp_result.get('discrete_batches', False),
+                        'content_type_results': serp_result.get('content_type_results', {}),
+                        'batches_created': serp_result.get('batches_created', 0),
+                        'regions': serp_result.get('regions', []),
+                        'content_types': serp_result.get('content_types', []),
+                        'granular_scheduling_enabled': serp_result.get('granular_scheduling_enabled', False),
+                        'unique_domains_count': len(serp_result.get('unique_domains', []) or []),
+                        'video_urls_count': len(serp_result.get('video_urls', []) or []),
+                        'content_urls_count': len(serp_result.get('content_urls', []) or []),
+                    }
+                    logger.info(f"🔍 SERP PHASE COMPLETED: {serp_log}")
+                except Exception:
+                    logger.info("🔍 SERP PHASE COMPLETED (summary logged)")
+
+                # Always persist SERP phase completion and summary
                 result.phase_results[PipelinePhase.SERP_COLLECTION] = serp_result
+                await update_phase_status("serp_collection", "completed", serp_result)
                 # Handle both batch and non-batch result formats
                 result.serp_results_collected = serp_result.get('total_results', serp_result.get('total_results_stored', 0))
                 result.keywords_processed = serp_result.get('keywords_processed', 0)
@@ -438,87 +724,292 @@ class PipelineService:
                         result_set_id=result_set_id,
                         download_links=download_links
                     )
-                    
-                    result.phase_results[PipelinePhase.SERP_COLLECTION] = serp_result
-                    result.serp_results_collected = serp_result.get('total_results', 0)
-                    result.keywords_processed = serp_result.get('keywords_processed', 0)
-                    
-                    # Update metrics
-                    await self._update_pipeline_metrics(
-                        str(pipeline_id),
-                        keywords_processed=result.keywords_processed,
-                        serp_results_collected=result.serp_results_collected
-                    )
                 else:
                     logger.warning("⚠️ No batch_id provided for webhook pipeline, getting existing results")
                     serp_result = await self._get_existing_serp_results(config, pipeline_id)
-                    result.phase_results[PipelinePhase.SERP_COLLECTION] = serp_result
-                    result.serp_results_collected = serp_result.get('total_results', 0)
+
+                # Persist webhook SERP results and update metrics
+                result.phase_results[PipelinePhase.SERP_COLLECTION] = serp_result
+                result.serp_results_collected = serp_result.get('total_results', 0)
+                result.keywords_processed = serp_result.get('keywords_processed', 0)
+                await self._update_pipeline_metrics(
+                    str(pipeline_id),
+                    keywords_processed=result.keywords_processed,
+                    serp_results_collected=result.serp_results_collected
+                )
             
             # Check for cancellation
             if result.status == PipelineStatus.CANCELLED:
                 return
             
-            # Phase 3: Company Enrichment
-            if config.enable_company_enrichment and serp_result.get('unique_domains'):
+            # Phase 3: Company Enrichment (strictly after SERPs stored for THIS pipeline)
+            serp_count = 0
+            serp_domains: List[str] = []
+            try:
+                async with self.db.acquire() as conn:
+                    serp_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM serp_results WHERE pipeline_execution_id = $1",
+                        pipeline_id,
+                    ) or 0
+                    if serp_count > 0:
+                        domain_rows = await conn.fetch(
+                            "SELECT DISTINCT domain FROM serp_results WHERE pipeline_execution_id = $1 AND domain IS NOT NULL",
+                            pipeline_id,
+                        )
+                        serp_domains = [row['domain'] for row in domain_rows]
+            except Exception as e:
+                logger.error(f"Failed to verify SERP readiness for enrichment: {e}")
+
+            # Require that the SERP phase is marked completed for this pipeline
+            serp_phase_completed = False
+            try:
+                async with self.db.acquire() as conn:
+                    status = await conn.fetchval(
+                        """
+                        SELECT status::text FROM pipeline_phase_status
+                        WHERE pipeline_execution_id = $1 AND phase_name = 'serp_collection'
+                        """,
+                        pipeline_id,
+                    )
+                    serp_phase_completed = (status == 'completed')
+            except Exception as e:
+                logger.error(f"Failed to read serp_collection phase status: {e}")
+
+            # Check if company enrichment is already completed
+            company_enrichment_completed = await self._is_phase_completed(pipeline_id, "company_enrichment_serp")
+            
+            if config.enable_company_enrichment and serp_phase_completed and serp_count > 0 and not company_enrichment_completed:
                 logger.info(f"Pipeline {pipeline_id}: Starting company enrichment")
                 await self._broadcast_status(pipeline_id, "Enriching company data...")
+                await update_phase_status("company_enrichment_serp", "running")
                 
-                enrichment_result = await self._execute_company_enrichment_phase(
-                    serp_result['unique_domains']
-                )
-                result.phase_results[PipelinePhase.COMPANY_ENRICHMENT] = enrichment_result
+                # Filter out already enriched domains to avoid re-processing
+                domains_to_enrich = serp_domains
+                if serp_domains:
+                    try:
+                        async with self.db.acquire() as conn:
+                            # Check which domains are already in company_profiles
+                            existing_result = await conn.fetch(
+                                """
+                                SELECT DISTINCT domain 
+                                FROM company_profiles 
+                                WHERE domain = ANY($1::text[])
+                                """,
+                                serp_domains
+                            )
+                            existing_domains = {row['domain'] for row in existing_result}
+                            domains_to_enrich = [d for d in serp_domains if d not in existing_domains]
+                            
+                            logger.info(f"Company enrichment: {len(serp_domains)} total domains, "
+                                      f"{len(existing_domains)} already enriched, "
+                                      f"{len(domains_to_enrich)} new domains to process")
+                    except Exception as e:
+                        logger.warning(f"Failed to filter existing domains, processing all: {e}")
+                        domains_to_enrich = serp_domains
+                
+                # Add error handling and check for empty domain list
+                try:
+                    if not domains_to_enrich:
+                        logger.info("No new domains to enrich, marking phase as complete")
+                        enrichment_result = {
+                            'success': True,
+                            'phase_name': 'company_enrichment_serp',
+                            'domains_processed': 0,
+                            'companies_enriched': 0,
+                            'errors': [],
+                            'message': 'All domains already enriched'
+                        }
+                    else:
+                        enrichment_result = await self._execute_company_enrichment_phase(
+                            domains_to_enrich
+                        )
+                except Exception as e:
+                    logger.error(f"Company enrichment phase failed: {e}", exc_info=True)
+                    enrichment_result = {
+                        'success': False,
+                        'phase_name': 'company_enrichment_serp',
+                        'domains_processed': 0,
+                        'companies_enriched': 0,
+                        'errors': [str(e)]
+                    }
+                result.phase_results[PipelinePhase.COMPANY_ENRICHMENT_SERP] = enrichment_result
                 result.companies_enriched = enrichment_result.get('companies_enriched', 0)
+                await update_phase_status("company_enrichment_serp", "completed", enrichment_result)
                 
                 # Update metrics in real-time
                 await self._update_pipeline_metrics(
                     str(pipeline_id),
                     companies_enriched=result.companies_enriched
                 )
+            elif config.enable_company_enrichment and company_enrichment_completed:
+                logger.info(f"Pipeline {pipeline_id}: Skipping company enrichment (already completed)")
+                # Load existing results from database
+                async with self.db.acquire() as conn:
+                    phase_result = await conn.fetchrow(
+                        """
+                        SELECT result_data
+                        FROM pipeline_phase_status
+                        WHERE pipeline_execution_id = $1 AND phase_name = 'company_enrichment_serp'
+                        """,
+                        pipeline_id
+                    )
+                    if phase_result and phase_result['result_data']:
+                        enrichment_result = phase_result['result_data']
+                        result.phase_results[PipelinePhase.COMPANY_ENRICHMENT_SERP] = enrichment_result
+                        result.companies_enriched = enrichment_result.get('companies_enriched', 0)
+            elif config.enable_company_enrichment:
+                # Explicitly block company enrichment until SERP results exist
+                block_reason = "SERP collection not completed or no results stored"
+                logger.warning(f"Pipeline {pipeline_id}: Blocking company enrichment - {block_reason}")
+                await update_phase_status("company_enrichment_serp", "blocked", {
+                    'success': False,
+                    'blocked_by': 'serp_collection',
+                    'reason': block_reason
+                })
             
-            # Phase 4: Video Enrichment
+            # Phase 4: Video Enrichment (Non-Critical)
             if config.enable_video_enrichment and serp_result.get('video_urls'):
-                logger.info(f"Pipeline {pipeline_id}: Starting video enrichment")
-                await self._broadcast_status(pipeline_id, "Enriching video content...")
+                result.current_phase = "youtube_enrichment"
+                logger.info(f"Pipeline {pipeline_id}: Starting video enrichment (non-critical phase)")
+                await self._broadcast_status(pipeline_id, "Enriching video content (optional)...")
+                await update_phase_status("youtube_enrichment", "running")
                 
                 try:
+                    # Always start background channel resolver early; inline AI channel resolution is disabled
+                    try:
+                        if getattr(self.settings, 'CHANNEL_COMPANY_RESOLVER_ENABLED', True):
+                            self.channel_resolver.start_background()
+                    except Exception:
+                        pass
                     video_result = await self._execute_video_enrichment_phase(
                         serp_result['video_urls'],
                         pipeline_execution_id=str(pipeline_id)
                     )
-                    result.phase_results[PipelinePhase.VIDEO_ENRICHMENT] = video_result
+                    result.phase_results[PipelinePhase.YOUTUBE_ENRICHMENT] = video_result
                     result.videos_enriched = video_result.get('videos_enriched', 0)
+                    
+                    # Only mark as completed if it was successful or processed most videos
+                    if video_result.get('success', False):
+                        await update_phase_status("youtube_enrichment", "completed", video_result)
+                    else:
+                        # Mark as skipped instead of failed for non-critical phase
+                        await update_phase_status("youtube_enrichment", "skipped", {
+                            **video_result,
+                            'reason': f"Low success rate: {video_result.get('success_rate', 0):.1f}% (non-critical)"
+                        })
+                        logger.warning(f"YouTube enrichment had low success rate but continuing pipeline (non-critical)")
                 except Exception as e:
-                    logger.warning(f"Video enrichment failed (possibly due to network restrictions): {e}")
-                    result.phase_results[PipelinePhase.VIDEO_ENRICHMENT] = {
+                    error_msg = str(e) if hasattr(e, '__str__') else 'Unknown error'
+                    logger.warning(f"YouTube enrichment failed (non-critical, continuing): {error_msg}")
+                    result.phase_results[PipelinePhase.YOUTUBE_ENRICHMENT] = {
                         'success': False,
                         'videos_enriched': 0,
-                        'error': str(e),
-                        'skipped_reason': 'Network restrictions may be blocking YouTube API'
+                        'error': error_msg,
+                        'skipped_reason': 'YouTube API error - phase skipped (non-critical)'
                     }
+                    await update_phase_status("youtube_enrichment", "skipped", {
+                        'error': error_msg,
+                        'reason': 'YouTube API error - phase skipped (non-critical)'
+                    })
+                    # Don't fail the pipeline - YouTube is not critical
+                    logger.info(f"Pipeline {pipeline_id}: Continuing despite YouTube enrichment failure (non-critical phase)")
             
             # Phase 5: Content Scraping
             if config.enable_content_scraping and serp_result.get('content_urls'):
-                logger.info(f"Pipeline {pipeline_id}: Starting content scraping")
-                await self._broadcast_status(pipeline_id, "Scraping web content...")
+                # Check if content scraping is already completed
+                scraping_already_completed = await self._is_phase_completed(pipeline_id, "content_scraping")
                 
-                scraping_result = await self._execute_content_scraping_phase(
-                    serp_result['content_urls']
-                )
+                if scraping_already_completed:
+                    logger.info(f"Pipeline {pipeline_id}: Skipping content scraping (already completed)")
+                    # Get existing scraping results
+                    async with self.db.acquire() as conn:
+                        scraped_count = await conn.fetchval("""
+                            SELECT COUNT(*) FROM scraped_content 
+                            WHERE pipeline_execution_id = $1
+                        """, str(pipeline_id))
+                    
+                    scraping_result = {
+                        'urls_total': len(serp_result.get('content_urls', [])),
+                        'urls_scraped': scraped_count or 0,
+                        'scraped_results': [],
+                        'errors': []
+                    }
+                else:
+                    result.current_phase = "content_scraping"
+                    logger.info(f"Pipeline {pipeline_id}: Starting content scraping")
+                    await self._broadcast_status(pipeline_id, "Scraping web content...")
+                    await update_phase_status("content_scraping", "running")
+                    
+                    # Start concurrent content analyzer in the background
+                    if config.enable_content_analysis:
+                        logger.info(f"Pipeline {pipeline_id}: Starting concurrent content analysis monitor")
+                        await self.concurrent_content_analyzer.start_monitoring(
+                            pipeline_id=pipeline_id,
+                            project_id=getattr(self, 'current_project_id', None)
+                        )
+                    
+                    scraping_result = await self._execute_content_scraping_phase(
+                        serp_result['content_urls']
+                    )
+                    await update_phase_status("content_scraping", "completed", scraping_result)
+                    
                 result.phase_results[PipelinePhase.CONTENT_SCRAPING] = scraping_result
+                # Scrape phase summary logging (counts by status for this pipeline)
+                try:
+                    pipeline_id_str = str(pipeline_id)
+                    async with db_pool.acquire() as conn:
+                        rows = await conn.fetch(
+                            """
+                            SELECT COALESCE(status,'unknown') AS status, COUNT(*)::int AS cnt
+                            FROM scraped_content
+                            WHERE pipeline_execution_id = $1
+                            GROUP BY COALESCE(status,'unknown')
+                            ORDER BY COALESCE(status,'unknown')
+                            """,
+                            pipeline_id_str,
+                        )
+                    status_counts = {r['status']: r['cnt'] for r in rows} if rows else {}
+                    completed_cnt = status_counts.get('completed', 0)
+                    failed_cnt = status_counts.get('failed', 0)
+                    unknown_cnt = status_counts.get('unknown', 0)
+                    logger.info(
+                        f"Scrape summary for pipeline {pipeline_id_str}: "
+                        f"total_urls={scraping_result.get('urls_total', 0)}, "
+                        f"candidates={scraping_result.get('urls_candidates', 0)}, "
+                        f"scraped_completed={completed_cnt}, "
+                        f"scraped_failed={failed_cnt}, "
+                        f"scraped_unknown={unknown_cnt}, "
+                        f"errors_recorded={len(scraping_result.get('errors', []))}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to log scrape summary for pipeline {pipeline_id}: {e}")
             
             # Phase 6: Content Analysis
+            # Now we wait for the concurrent analyzer to complete
             if config.enable_content_analysis:
-                logger.info(f"Pipeline {pipeline_id}: Starting content analysis")
+                result.current_phase = "content_analysis"
+                logger.info(f"Pipeline {pipeline_id}: Waiting for content analysis to complete")
                 await self._broadcast_status(pipeline_id, "Analyzing content with AI...")
+                await update_phase_status("content_analysis", "running")
                 
-                analysis_result = await self._execute_content_analysis_phase()
+                # Wait for all content to be analyzed or timeout
+                analysis_result = await self._wait_for_content_analysis_completion(pipeline_id)
+                
+                # Stop the concurrent analyzer
+                await self.concurrent_content_analyzer.stop_monitoring()
+                
                 result.phase_results[PipelinePhase.CONTENT_ANALYSIS] = analysis_result
                 result.content_analyzed = analysis_result.get('content_analyzed', 0)
+                content_analysis_success = bool(analysis_result.get('success')) and result.content_analyzed > 0
+                await update_phase_status(
+                    "content_analysis",
+                    "completed" if content_analysis_success else "failed",
+                    analysis_result
+                )
             
             # Phase 7: DSI Calculation
             # Check all DSI dependencies using PhaseOrchestrator logic
-            # DSI depends on: content_analysis, company_enrichment_youtube
+            # DSI depends on: content_analysis, youtube_enrichment
             dsi_dependencies_met = True
             dsi_skip_reasons = []
             
@@ -530,30 +1021,43 @@ class PipelineService:
             # Check content_analysis dependency
             if config.enable_content_analysis:
                 content_analysis_result = result.phase_results.get(PipelinePhase.CONTENT_ANALYSIS, {})
-                if not content_analysis_result.get('success', False) or content_analysis_result.get('content_analyzed', 0) == 0:
+                # Consider flexible completion as success
+                is_flexible_completion = content_analysis_result.get('flexible_completion', False)
+                has_analyzed_content = content_analysis_result.get('content_analyzed', 0) > 0
+                
+                if not content_analysis_result.get('success', False) and not is_flexible_completion:
                     dsi_dependencies_met = False
                     dsi_skip_reasons.append("Content analysis did not complete successfully")
+                elif not has_analyzed_content:
+                    dsi_dependencies_met = False
+                    dsi_skip_reasons.append("No content was analyzed")
             
             # Check company_enrichment dependency (both SERP and YouTube enrichment)
             if config.enable_company_enrichment:
-                company_enrichment_result = result.phase_results.get(PipelinePhase.COMPANY_ENRICHMENT, {})
+                company_enrichment_result = result.phase_results.get(PipelinePhase.COMPANY_ENRICHMENT_SERP, {})
                 if not company_enrichment_result.get('success', False):
                     dsi_dependencies_met = False
                     dsi_skip_reasons.append("Company enrichment (SERP) did not complete successfully")
             
-            # Check video enrichment if enabled (for company_enrichment_youtube dependency)
+            # Check video enrichment if enabled (Non-Critical - Don't block DSI)
             if config.enable_video_enrichment:
-                video_enrichment_result = result.phase_results.get(PipelinePhase.VIDEO_ENRICHMENT, {})
-                if not video_enrichment_result.get('success', False):
-                    dsi_dependencies_met = False
-                    dsi_skip_reasons.append("Video enrichment did not complete successfully")
+                video_enrichment_result = result.phase_results.get(PipelinePhase.YOUTUBE_ENRICHMENT, {})
+                # YouTube enrichment is non-critical - never block DSI calculation
+                if not video_enrichment_result and serp_result.get('video_urls'):
+                    # No result at all means it didn't run, but don't block DSI
+                    logger.warning("Video enrichment did not run, but continuing with DSI (non-critical)")
+                elif video_enrichment_result.get('success_rate', 0) < 10 and video_enrichment_result.get('total_videos', 0) > 0:
+                    # Low success rate in YouTube is acceptable - it's non-critical
+                    logger.warning(f"Video enrichment had low success rate: {video_enrichment_result.get('success_rate', 0):.1f}% (non-critical, not blocking DSI)")
             
             if dsi_dependencies_met:
                 logger.info(f"Pipeline {pipeline_id}: Calculating DSI metrics")
                 await self._broadcast_status(pipeline_id, "Calculating DSI rankings...")
+                await update_phase_status("dsi_calculation", "running")
                 
                 dsi_result = await self._execute_dsi_calculation_phase()
                 result.phase_results[PipelinePhase.DSI_CALCULATION] = dsi_result
+                await update_phase_status("dsi_calculation", "completed", dsi_result)
             else:
                 logger.warning(f"Pipeline {pipeline_id}: Skipping DSI calculation - dependencies not met")
                 for reason in dsi_skip_reasons:
@@ -565,6 +1069,10 @@ class PipelineService:
                     'reason': 'Dependencies not met',
                     'skip_reasons': dsi_skip_reasons
                 }
+                await update_phase_status("dsi_calculation", "skipped", {
+                    'reason': 'Dependencies not met',
+                    'skip_reasons': dsi_skip_reasons
+                })
             
             # Phase 8: Historical Snapshot (if enabled)
             if config.enable_historical_tracking:
@@ -592,23 +1100,83 @@ class PipelineService:
                 }
                 result.landscapes_calculated = 0
             
-            # Complete pipeline
-            result.status = PipelineStatus.COMPLETED
+            # Complete pipeline with correctness: fail if any enabled phase failed/incomplete or critical deps not met
+            final_message = "Pipeline completed successfully!"
+            try:
+                # Read persisted phase statuses
+                async with self.db.acquire() as conn:
+                    phase_rows = await conn.fetch(
+                        """
+                        SELECT phase_name, status::text AS status
+                        FROM pipeline_phase_status
+                        WHERE pipeline_execution_id = $1
+                        """,
+                        pipeline_id,
+                    )
+                status_map = {r['phase_name']: r['status'] for r in phase_rows} if phase_rows else {}
+
+                enabled_set = set(enabled_phases)
+                failed_phases = [p for p, s in status_map.items() if p in enabled_set and s in ("failed", "blocked")]
+                incomplete_phases = [p for p, s in status_map.items() if p in enabled_set and s in ("pending", "queued", "running")]
+
+                # Critical phase checks
+                critical_fail = False
+                if "serp_collection" in enabled_set and status_map.get("serp_collection") != "completed":
+                    critical_fail = True
+                if "content_scraping" in enabled_set and status_map.get("content_scraping") != "completed":
+                    critical_fail = True
+                if "content_analysis" in enabled_set and status_map.get("content_analysis") != "completed":
+                    critical_fail = True
+                if "dsi_calculation" in enabled_set and status_map.get("dsi_calculation") != "completed":
+                    # DSI is critical when enabled (depends on prior phases)
+                    critical_fail = True
+
+                should_fail = bool(failed_phases or incomplete_phases or critical_fail)
+                result.status = PipelineStatus.FAILED if should_fail else PipelineStatus.COMPLETED
+                if should_fail:
+                    reasons = []
+                    if failed_phases:
+                        reasons.append(f"failed phases: {failed_phases}")
+                    if incomplete_phases:
+                        reasons.append(f"incomplete phases: {incomplete_phases}")
+                    if critical_fail and not (failed_phases or incomplete_phases):
+                        reasons.append("critical dependencies not met")
+                    final_message = f"Pipeline {'failed' if should_fail else 'completed'} - " + ", ".join(reasons)
+            except Exception as e:
+                # Conservative default: if content analysis produced zero, mark failed
+                logger.warning(f"Final status evaluation error: {e}")
+                ca_ok = bool(result.phase_results.get(PipelinePhase.CONTENT_ANALYSIS, {}).get('success')) and \
+                        (result.phase_results.get(PipelinePhase.CONTENT_ANALYSIS, {}).get('content_analyzed', 0) > 0)
+                result.status = PipelineStatus.COMPLETED if ca_ok else PipelineStatus.FAILED
+                if result.status == PipelineStatus.FAILED:
+                    final_message = "Pipeline failed - final status evaluation error and content analysis incomplete"
+
             result.completed_at = datetime.utcnow()
             
-            await self._broadcast_status(pipeline_id, "Pipeline completed successfully!")
-            logger.info(f"Pipeline {pipeline_id} completed successfully")
+            await self._broadcast_status(pipeline_id, final_message)
+            logger.info(f"Pipeline {pipeline_id} finished with status={result.status.value}")
             
             # Save final result
             await self._save_pipeline_state(result)
             
+        except asyncio.TimeoutError as e:
+            result.status = PipelineStatus.FAILED
+            result.completed_at = datetime.utcnow()
+            current_phase = getattr(result, 'current_phase', 'unknown')
+            error_msg = f"Pipeline timed out at phase: {current_phase}"
+            result.errors.append(error_msg)
+            
+            await self._broadcast_status(pipeline_id, error_msg)
+            logger.error(f"Pipeline {pipeline_id} failed: {error_msg}")
         except Exception as e:
             result.status = PipelineStatus.FAILED
             result.completed_at = datetime.utcnow()
-            result.errors.append(str(e))
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            result.errors.append(error_msg)
             
-            await self._broadcast_status(pipeline_id, f"Pipeline failed: {str(e)}")
-            logger.error(f"Pipeline {pipeline_id} failed: {e}")
+            # Log with full stack trace for debugging
+            logger.error(f"Pipeline {pipeline_id} failed with {type(e).__name__}", exc_info=True)
+            await self._broadcast_status(pipeline_id, f"Pipeline failed: {error_msg}")
         
         finally:
             await self._save_pipeline_state(result)
@@ -630,8 +1198,8 @@ class PipelineService:
                 logger.error(f"❌ Please ensure these keywords exist in the project")
                 return {'keywords_processed': 0, 'total_results': 0, 'message': 'Keywords not found in project database'}
         else:
-            logger.info(f"🔍 No specific keywords provided - getting all project keywords")
-            keywords = await self._get_all_keywords()
+            logger.info(f"🔍 No specific keywords provided - getting all ACTIVE project keywords")
+            keywords = await self._get_all_keywords(active_only=True)
             if not keywords:
                 logger.warning(f"⚠️ No keywords found in project database")
                 return {'keywords_processed': 0, 'total_results': 0, 'message': 'No keywords in project'}
@@ -727,9 +1295,9 @@ class PipelineService:
         # Initialize SERP items in state tracker for progress tracking
         if state_tracker:
             serp_items = []
-        for keyword in keywords:
-            for region in config.regions:
-                for content_type in config.content_types:
+            for keyword in keywords:
+                for region in config.regions:
+                    for content_type in config.content_types:
                         serp_items.append({
                             'type': 'serp_search',
                             'keyword': keyword['keyword'],
@@ -740,13 +1308,26 @@ class PipelineService:
                         })
             
             try:
-                # Initialize state tracking for SERP items
-                await state_tracker.initialize_pipeline(
-                    pipeline_id, 
-                    ["serp_collection"], 
-                    serp_items
-                )
-                logger.info(f"🔧 STATE TRACKING: Initialized {len(serp_items)} SERP items for tracking")
+                # Check if state tracking already exists for this pipeline
+                async with self.db.acquire() as conn:
+                    existing_count = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM pipeline_state 
+                        WHERE pipeline_execution_id = $1 AND phase = 'serp_collection'
+                        """,
+                        pipeline_id
+                    )
+                
+                if existing_count == 0:
+                    # Initialize state tracking for SERP items
+                    await state_tracker.initialize_pipeline(
+                        pipeline_id, 
+                        ["serp_collection"], 
+                        serp_items
+                    )
+                    logger.info(f"🔧 STATE TRACKING: Initialized {len(serp_items)} SERP items for tracking")
+                else:
+                    logger.info(f"🔧 STATE TRACKING: Found {existing_count} existing SERP items, skipping initialization")
             except Exception as e:
                 logger.warning(f"⚠️ STATE TRACKING: Could not initialize state tracking: {str(e)}")
                 logger.warning(f"⚠️ Continuing without state tracking for this phase")
@@ -821,6 +1402,22 @@ class PipelineService:
                         'batch_requests': batch_result.get('batch_requests', [])
                     })
                     logger.info(f"✅ {content_type.upper()} batch created: {batch_result['batch_id']}")
+                    
+                    # Store batch details for recovery after restart
+                    try:
+                        from app.services.serp.batch_persistence import BatchPersistenceService
+                        await BatchPersistenceService.store_batch_details(
+                            pipeline_id=pipeline_id,
+                            batch_id=batch_result['batch_id'],
+                            content_type=content_type,
+                            batch_requests=batch_result.get('batch_requests', []),
+                            batch_config={
+                                'frequency': content_frequency,
+                                'news_time_period': news_time_period if content_type == 'news' else None
+                            }
+                        )
+                    except Exception as persist_error:
+                        logger.warning(f"Failed to persist batch details: {persist_error}")
                 else:
                     logger.error(f"❌ Failed to create {content_type} batch: {batch_result.get('error')}")
                     content_type_results[content_type] = {'success': False, 'error': batch_result.get('error')}
@@ -922,11 +1519,16 @@ class PipelineService:
         # Get unique domains from the database for batch mode
         unique_domains = []
         video_urls = []
+        content_urls = []
         if total_results > 0:
             # Since batch mode stores results directly, query the database
             unique_domains = await self._get_unique_serp_domains()
             video_urls = await self._get_video_urls_from_serp()
-            logger.info(f"🔍 Found {len(unique_domains)} unique domains and {len(video_urls)} video URLs from batch results")
+            content_urls = await self._get_content_urls_from_serp()
+            # Log only counts, not the actual lists, to keep logs compact
+            logger.info(
+                f"🔍 Found {len(unique_domains)} unique domains, {len(video_urls)} video URLs, and {len(content_urls)} content URLs from batch results"
+            )
         
         return {
             'keywords_processed': len(keywords),
@@ -939,7 +1541,8 @@ class PipelineService:
             'content_types': config.content_types,
             'granular_scheduling_enabled': True,
             'unique_domains': unique_domains,
-            'video_urls': video_urls
+            'video_urls': video_urls,
+            'content_urls': content_urls
         }
     
     async def _execute_company_enrichment_phase(self, domains: List[str], phase_name: str = "default") -> Dict[str, Any]:
@@ -950,6 +1553,23 @@ class PipelineService:
             phase_name: Name of the phase for logging (e.g., 'serp_domains', 'youtube_domains')
         """
         logger.info(f"🏢 Starting company enrichment for {phase_name}: {len(domains)} domains")
+        
+        # Filter out already enriched domains
+        try:
+            async with db_pool.acquire() as conn:
+                existing_domains = await conn.fetch(
+                    "SELECT DISTINCT domain FROM company_profiles WHERE domain = ANY($1::text[])",
+                    domains
+                )
+                existing_set = {row['domain'] for row in existing_domains}
+                domains_to_enrich = [d for d in domains if d not in existing_set]
+                
+                logger.info(f"🏢 Filtered domains: {len(domains)} total, {len(existing_set)} already enriched, {len(domains_to_enrich)} to process")
+                domains = domains_to_enrich
+        except Exception as e:
+            logger.error(f"Failed to filter domains: {e}")
+            # Continue with all domains if filtering fails
+        
         companies_enriched = 0
         errors = []
         
@@ -963,19 +1583,54 @@ class PipelineService:
                     if result:
                         companies_enriched += 1
                     return result
+                except asyncio.TimeoutError:
+                    error_msg = f"Timeout enriching {domain}"
+                    logger.warning(error_msg)
+                    errors.append(error_msg)
+                    return None
+                except httpx.HTTPError as e:
+                    error_msg = f"HTTP error for {domain}: {str(e)}"
+                    logger.warning(error_msg)
+                    errors.append(error_msg)
+                    return None
                 except Exception as e:
-                    errors.append(f"Failed to enrich {domain}: {str(e)}")
+                    error_msg = f"Failed to enrich {domain}: {str(e)}"
+                    logger.error(error_msg, exc_info=True)
+                    errors.append(error_msg)
                     return None
         
-        tasks = [enrich_domain(domain) for domain in domains]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Process in smaller batches to avoid overwhelming the system
+        batch_size = 50
+        for i in range(0, len(domains), batch_size):
+            batch = domains[i:i + batch_size]
+            batch_num = i // batch_size + 1
+            total_batches = (len(domains) + batch_size - 1) // batch_size
+            
+            logger.info(f"🏢 Processing enrichment batch {batch_num}/{total_batches} ({len(batch)} domains)")
+            
+            tasks = [enrich_domain(domain) for domain in batch]
+            try:
+                # Add timeout for each batch
+                async with asyncio.timeout(300):  # 5 minute timeout per batch
+                    await asyncio.gather(*tasks, return_exceptions=True)
+            except asyncio.TimeoutError:
+                logger.error(f"Batch {batch_num} timed out after 5 minutes")
+                errors.append(f"Batch {batch_num} timed out")
         
+        # Log summary
+        success = companies_enriched > 0 or len(domains) == 0
+        if not success and errors:
+            logger.warning(f"Company enrichment completed with errors: {len(errors)} errors for {len(domains)} domains")
+            for error in errors[:5]:  # Log first 5 errors
+                logger.warning(f"  - {error}")
+                
         return {
-            'success': companies_enriched > 0 or len(domains) == 0,
+            'success': success,
             'phase_name': phase_name,
             'domains_processed': len(domains),
             'companies_enriched': companies_enriched,
-            'errors': errors
+            'errors': errors,
+            'message': f"Enriched {companies_enriched}/{len(domains)} domains"
         }
     
     async def _execute_video_enrichment_phase(self, video_urls: List[str], pipeline_execution_id: Optional[str] = None) -> Dict[str, Any]:
@@ -1116,12 +1771,23 @@ class PipelineService:
             )
             logger.info(f"📊 Video enrichment progress: {progress_summary}")
         
+        # Calculate success rate
+        total_videos = len(video_urls)
+        successfully_processed = total_enriched + total_cached
+        success_rate = (successfully_processed / total_videos * 100) if total_videos > 0 else 100
+        
+        # Determine if this was successful based on completion rate
+        success = success_rate >= 50 or total_videos == 0  # At least 50% success rate
+        
         logger.info(f"📹 Video enrichment complete: "
-                   f"{total_enriched} enriched, {total_cached} cached, {total_failed} failed")
+                   f"{total_enriched} enriched, {total_cached} cached, {total_failed} failed "
+                   f"(success rate: {success_rate:.1f}%)")
         
         return {
-            'success': total_enriched > 0 or total_cached > 0 or len(video_urls) == 0,
-            'videos_processed': len(video_urls),
+            'success': success,
+            'success_rate': success_rate,
+            'total_videos': total_videos,
+            'videos_processed': total_videos,
             'videos_enriched': total_enriched,
             'videos_cached': total_cached,
             'videos_failed': total_failed,
@@ -1136,23 +1802,44 @@ class PipelineService:
         errors = []
         scraped_results = []
         
+        # Attach current pipeline id to any already-scraped URLs so the analyzer can pick them up
+        try:
+            await self._attach_pipeline_id_to_existing_scraped(urls)
+        except Exception as e:
+            logger.warning(f"Failed to attach pipeline id to existing scraped rows: {e}")
+        
         # Filter out already scraped URLs if not force refresh
         urls_to_scrape = await self._filter_unscraped_urls(urls)
+        logger.info(f"Content scraping: {len(urls)} total URLs, {len(urls) - len(urls_to_scrape)} already scraped, {len(urls_to_scrape)} new URLs to scrape")
         
-        semaphore = asyncio.Semaphore(50)  # ScrapingBee limits
+        # Use configured concurrency limit or default to 50
+        max_concurrent = getattr(self.settings, 'DEFAULT_SCRAPER_CONCURRENT_LIMIT', 50)
+        semaphore = asyncio.Semaphore(max_concurrent)
+        logger.info(f"Content scraping using {max_concurrent} concurrent connections")
         
         async def scrape_url(url: str):
             nonlocal scraped_count
             async with semaphore:
                 try:
                     result = await self.web_scraper.scrape(url)
-                    if result and result.get('content'):
+                    # Always attach pipeline_execution_id and store outcome
+                    if result is None:
+                        result = {'url': url, 'content': '', 'title': '', 'html': '', 'meta_description': '', 'word_count': 0}
+                    try:
+                        result['pipeline_execution_id'] = str(self.current_pipeline_id) if hasattr(self, 'current_pipeline_id') else None
+                    except Exception:
+                        result['pipeline_execution_id'] = None
+                    await self._store_scraped_content(result)
+                    if result.get('content'):
                         scraped_count += 1
-                        # Store in database
-                        await self._store_scraped_content(result)
                         scraped_results.append(result)
                     return result
                 except Exception as e:
+                    # Persist failed attempt as failed row
+                    try:
+                        await self._store_scraped_content({'url': url, 'content': '', 'title': '', 'html': '', 'meta_description': f'error: {str(e)}', 'word_count': 0, 'pipeline_execution_id': str(self.current_pipeline_id) if hasattr(self, 'current_pipeline_id') else None})
+                    except Exception:
+                        pass
                     errors.append(f"Failed to scrape {url}: {str(e)}")
                     return None
         
@@ -1161,13 +1848,37 @@ class PipelineService:
         
         return {
             'urls_total': len(urls),
+            'urls_candidates': len(urls_to_scrape),
             'urls_scraped': scraped_count,
             'scraped_results': scraped_results,
             'errors': errors
         }
+
+    async def _attach_pipeline_id_to_existing_scraped(self, urls: List[str]) -> None:
+        """Attach current pipeline_execution_id to existing scraped_content rows for given URLs."""
+        if not urls:
+            return
+        pipeline_id_str = None
+        try:
+            pipeline_id_str = str(self.current_pipeline_id)
+        except Exception:
+            pipeline_id_str = None
+        if not pipeline_id_str:
+            return
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE scraped_content
+                SET pipeline_execution_id = $2
+                WHERE url = ANY($1::text[])
+                  AND (pipeline_execution_id IS NULL OR pipeline_execution_id <> $2)
+                """,
+                urls,
+                pipeline_id_str,
+            )
     
     async def _execute_content_analysis_phase(self) -> Dict[str, Any]:
-        """Execute content analysis phase"""
+        """Execute content analysis phase (legacy - for non-concurrent mode)"""
         # Get all unanalyzed content
         unanalyzed_content = await self._get_unanalyzed_content()
         
@@ -1203,17 +1914,227 @@ class PipelineService:
             'errors': errors
         }
     
+    async def _wait_for_content_analysis_completion(self, pipeline_id: UUID) -> Dict[str, Any]:
+        """Wait until all scraped pages for this pipeline are analyzed and channels resolved."""
+        max_wait_time = 1800  # 30 minutes max
+        check_interval = 10
+        start_time = datetime.utcnow()
+
+        async def get_pipeline_stats() -> Dict[str, int]:
+            try:
+                pipeline_id_str = str(pipeline_id)
+                async with db_pool.acquire() as conn:
+                    total_scraped = await conn.fetchval(
+                        """
+                        SELECT COUNT(*)
+                        FROM scraped_content
+                        WHERE pipeline_execution_id = $1
+                          AND status = 'completed'
+                          AND content IS NOT NULL
+                          AND LENGTH(content) > 100
+                        """,
+                        pipeline_id_str,
+                    ) or 0
+
+                    total_analyzed = await conn.fetchval(
+                        """
+                        SELECT COUNT(*)
+                        FROM optimized_content_analysis oca
+                        WHERE EXISTS (
+                          SELECT 1 FROM scraped_content sc
+                          WHERE sc.url = oca.url
+                            AND sc.pipeline_execution_id = $1
+                            AND sc.status = 'completed'
+                            AND sc.content IS NOT NULL
+                            AND LENGTH(sc.content) > 100
+                        )
+                        """,
+                        pipeline_id_str,
+                    ) or 0
+
+                    # Count YouTube channels from video_snapshots (which tracks per-pipeline data)
+                    total_channels = await conn.fetchval(
+                        """
+                        SELECT COUNT(DISTINCT channel_id)
+                        FROM video_snapshots vs
+                        INNER JOIN serp_results sr ON sr.url = vs.video_url
+                        WHERE sr.pipeline_execution_id = $1
+                          AND vs.channel_id IS NOT NULL
+                        """,
+                        pipeline_id_str,
+                    ) or 0
+
+                    # Count resolved channels
+                    channels_resolved = await conn.fetchval(
+                        """
+                        SELECT COUNT(DISTINCT ycc.channel_id)
+                        FROM youtube_channel_companies ycc
+                        WHERE ycc.channel_id IN (
+                            SELECT DISTINCT channel_id 
+                            FROM video_snapshots vs
+                            INNER JOIN serp_results sr ON sr.url = vs.video_url
+                            WHERE sr.pipeline_execution_id = $1
+                              AND vs.channel_id IS NOT NULL
+                        )
+                        AND ycc.company_domain IS NOT NULL
+                        """,
+                        pipeline_id_str,
+                    ) or 0
+
+                return {
+                    'total_scraped': int(total_scraped),
+                    'total_analyzed': int(total_analyzed),
+                    'pending_analysis': max(0, int(total_scraped) - int(total_analyzed)),
+                    'total_channels': int(total_channels),
+                    'channels_resolved': int(channels_resolved),
+                    'channels_pending': max(0, int(total_channels) - int(channels_resolved)),
+                }
+            except Exception as e:
+                logger.warning(f"Failed to get pipeline analysis stats: {e}")
+                return {
+                    'total_scraped': 0,
+                    'total_analyzed': 0,
+                    'pending_analysis': 0,
+                    'total_channels': 0,
+                    'channels_resolved': 0,
+                    'channels_pending': 0,
+                }
+
+        while (datetime.utcnow() - start_time).total_seconds() < max_wait_time:
+            stats = await get_pipeline_stats()
+
+            all_analyzed = stats['pending_analysis'] == 0 and stats['total_scraped'] > 0
+            channels_done = stats['channels_pending'] == 0
+
+            # Check if we should use flexible completion
+            if stats['total_scraped'] > 0 and stats['total_analyzed'] > 0:
+                completion_pct = (stats['total_analyzed'] / stats['total_scraped']) * 100
+                runtime_minutes = (datetime.utcnow() - start_time).total_seconds() / 60
+                
+                # Use flexible completion if we're at high completion % or long runtime
+                if completion_pct >= 95.0 or runtime_minutes >= 15.0:
+                    flexible_completion = FlexiblePhaseCompletion(db_pool)
+                    is_complete = await flexible_completion.check_and_complete_content_analysis(pipeline_id)
+                    if is_complete:
+                        logger.info(f"Content analysis marked complete via flexible completion: {stats['total_analyzed']}/{stats['total_scraped']} ({completion_pct:.1f}%)")
+                        return {
+                            'success': True,
+                            'content_processed': stats['total_scraped'],
+                            'content_analyzed': stats['total_analyzed'],
+                            'channels_total': stats['total_channels'],
+                            'channels_resolved': stats['channels_resolved'],
+                            'errors': [],
+                            'flexible_completion': True
+                        }
+
+            if all_analyzed and channels_done:
+                logger.info(f"Content analysis complete: {stats['total_analyzed']} items; channels resolved: {stats['channels_resolved']}")
+                return {
+                    'success': True,
+                    'content_processed': stats['total_scraped'],
+                    'content_analyzed': stats['total_analyzed'],
+                    'channels_total': stats['total_channels'],
+                    'channels_resolved': stats['channels_resolved'],
+                    'errors': []
+                }
+
+            progress_pct = (stats['total_analyzed'] / max(stats['total_scraped'], 1)) * 100 if stats['total_scraped'] else 0.0
+            await self._broadcast_status(
+                pipeline_id,
+                (
+                    f"Analyzing content: {stats['total_analyzed']}/{stats['total_scraped']} ({progress_pct:.1f}%) "
+                    f"- pending {stats['pending_analysis']}; channels {stats['channels_resolved']}/{stats['total_channels']}"
+                )
+            )
+            logger.info(
+                f"Content analysis progress: {stats['total_analyzed']}/{stats['total_scraped']} ({progress_pct:.1f}%) - "
+                f"{stats['pending_analysis']} pending; channels {stats['channels_resolved']}/{stats['total_channels']}"
+            )
+
+            await asyncio.sleep(check_interval)
+
+        # Timeout
+        stats = await get_pipeline_stats()
+        logger.warning(
+            f"Content analysis timeout. analyzed={stats['total_analyzed']}/{stats['total_scraped']}, "
+            f"channels_resolved={stats['channels_resolved']}/{stats['total_channels']}"
+        )
+        return {
+            'success': False,
+            'content_processed': stats['total_scraped'],
+            'content_analyzed': stats['total_analyzed'],
+            'channels_total': stats['total_channels'],
+            'channels_resolved': stats['channels_resolved'],
+            'errors': [f"Analysis/channel resolution timeout after {max_wait_time} seconds"]
+        }
+    
     async def _execute_dsi_calculation_phase(self) -> Dict[str, Any]:
-        """Execute DSI calculation phase"""
+        """Execute DSI calculation phase for ALL 24 digital landscapes"""
         try:
-            result = await self.dsi_calculator.calculate_dsi_rankings()
+            # Get all active landscapes
+            landscapes = await self._get_active_landscapes()
+            
+            if not landscapes:
+                return {
+                    'success': False,
+                    'message': 'No active landscapes found'
+                }
+            
+            total_companies_ranked = 0
+            total_pages_ranked = 0
+            landscape_results = {}
+            errors = []
+            
+            logger.info(f"Calculating DSI for {len(landscapes)} digital landscapes")
+            
+            # Use the enhanced SimplifiedDSICalculator for comprehensive DSI calculation
+            # This includes both company and page DSI with consistent formulas
+            logger.info(f"Calculating comprehensive DSI for all search types using enhanced calculator")
+            
+            # Calculate overall DSI (includes company and page level with enhanced data)
+            dsi_result = await self.dsi_calculator.calculate_dsi_rankings(str(self.pipeline_execution_id))
+            
+            total_companies_ranked = dsi_result.get('companies_ranked', 0)
+            total_pages_ranked = dsi_result.get('pages_ranked', 0)
+            
+            # Also calculate landscape-specific metrics for each of the 24 landscapes
+            for landscape in landscapes:
+                try:
+                    logger.info(f"Processing landscape-specific DSI for: {landscape['name']} ({landscape['id']})")
+                    
+                    # Calculate landscape-specific company DSI using ProductionLandscapeCalculator
+                    landscape_result = await self.landscape_calculator.calculate_and_store_landscape_dsi(
+                        landscape['id'], 
+                        'default'  # Use default client_id for pipeline calculations
+                    )
+                    
+                    landscape_results[landscape['name']] = {
+                        'landscape_id': landscape['id'],
+                        'companies': landscape_result.total_companies,
+                        'keywords': landscape_result.total_keywords,
+                        'calculation_duration': landscape_result.calculation_duration_seconds
+                    }
+                    
+                    logger.info(f"  Completed {landscape['name']}: {landscape_result.total_companies} companies, {landscape_result.total_keywords} keywords")
+                    
+                except Exception as e:
+                    error_msg = f"Failed to calculate landscape '{landscape['name']}': {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(error_msg, exc_info=True)
+            
             return {
                 'success': True,
                 'dsi_calculated': True,
-                'companies_ranked': result.get('companies_ranked', 0),
-                'pages_ranked': result.get('pages_ranked', 0)
+                'landscapes_processed': len(landscapes),
+                'companies_ranked': total_companies_ranked,
+                'pages_ranked': total_pages_ranked,
+                'landscape_results': landscape_results,
+                'errors': errors,
+                'success_rate': (len(landscapes) - len(errors)) / len(landscapes) if landscapes else 0
             }
+            
         except Exception as e:
+            logger.error(f"DSI calculation phase failed: {str(e)}", exc_info=True)
             return {
                 'success': False,
                 'dsi_calculated': False,
@@ -1248,8 +2169,8 @@ class PipelineService:
                 logger.info(f"🔍 Getting specific keywords: {config.keywords}")
                 keywords = await self._get_keywords_by_text(config.keywords)
             else:
-                logger.info(f"🔍 Getting all keywords from database")
-                keywords = await self._get_all_keywords()
+                logger.info(f"🔍 Getting all ACTIVE keywords from database")
+                keywords = await self._get_all_keywords(active_only=True)
             
             logger.info(f"🔍 Found {len(keywords) if keywords else 0} keywords in database")
             
@@ -1269,7 +2190,18 @@ class PipelineService:
             # Create mapping of keyword text to ID for database storage
             keyword_id_map = {kw['keyword']: kw['id'] for kw in keywords}
             
-            logger.info(f"Enriching {len(keyword_texts)} keywords with Google Ads historical metrics across {len(config.regions)} countries")
+            # Ensure regions come from active schedule when UI sends generic defaults
+            regions = config.regions or []
+            try:
+                if regions == ["US", "UK", "DE", "SA", "VN"]:
+                    async with db_pool.acquire() as conn:
+                        row = await conn.fetchrow("SELECT regions FROM pipeline_schedules WHERE is_active = true LIMIT 1")
+                        if row and row.get('regions'):
+                            regions = row['regions']
+            except Exception:
+                pass
+
+            logger.info(f"Enriching {len(keyword_texts)} keywords with Google Ads historical metrics across {len(regions)} countries")
             
             # Debug logging for Google Ads service availability
             logger.info(f"Checking Google Ads service availability...")
@@ -1279,82 +2211,51 @@ class PipelineService:
             if hasattr(self, 'google_ads_service'):
                 logger.info(f"Google Ads service found! Calling get_historical_metrics_batch...")
                 logger.info(f"Keywords to process: {keyword_texts}")
-                logger.info(f"Countries: {config.regions}")
+                logger.info(f"Countries: {regions}")
                 
                 try:
-                    logger.info(f"🚀 HOT FIX: Using direct API call pattern that worked!")
+                    logger.info(f"🚀 Using SimplifiedGoogleAdsService with proper batching")
                     
-                    # Use the exact same direct API pattern that succeeded
+                    # Initialize the Google Ads service with batching support
+                    from app.services.keywords.simplified_google_ads_service import SimplifiedGoogleAdsService
+                    google_ads_service = SimplifiedGoogleAdsService()
+                    await google_ads_service.initialize()
+                    
+                    # Use the service's batch processing which handles up to 1000 keywords per batch
+                    logger.info(f"📊 Processing {len(keyword_texts)} keywords across {len(regions)} regions with proper batching")
+                    
+                    # Add keyword IDs to the keywords for mapping
+                    keyword_texts_with_ids = []
+                    for kw in keywords:
+                        keyword_texts_with_ids.append(kw['keyword'])
+                    
+                    # Call the batch processing method
+                    country_metrics_raw = await google_ads_service.get_historical_metrics_batch(
+                    keywords=keyword_texts,
+                        countries=regions,
+                        pipeline_execution_id=str(pipeline_id)
+                    )
+                    
+                    # Convert KeywordMetric objects to dicts and map keyword IDs
                     country_metrics = {}
-                    for country in config.regions:
-                        try:
-                            from google.ads.googleads.client import GoogleAdsClient
-                            from app.core.config import settings
-                            
-                            # Exact same credentials as working direct test
-                            credentials = {
-                                'developer_token': settings.GOOGLE_ADS_DEVELOPER_TOKEN,
-                                'client_id': settings.GOOGLE_ADS_CLIENT_ID,
-                                'client_secret': settings.GOOGLE_ADS_CLIENT_SECRET,
-                                'refresh_token': settings.GOOGLE_ADS_REFRESH_TOKEN,
-                                'login_customer_id': settings.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
-                                'use_proto_plus': True
-                            }
-                            
-                            client = GoogleAdsClient.load_from_dict(credentials)
-                            
-                            # 🔧 HOT FIX: Use EXACT same customer ID as working direct test
-                            customer_id = settings.GOOGLE_ADS_CUSTOMER_ID or settings.GOOGLE_ADS_LOGIN_CUSTOMER_ID
-                            logger.info(f"🔧 Using EXACT same customer_id as working direct test: {customer_id}")
-                            logger.info(f"🔧 This customer ID returned 1,630 keyword ideas in direct test!")
-                            
-                            # Exact same API call as working test
-                            keyword_service = client.get_service("KeywordPlanIdeaService")
-                            request = client.get_type("GenerateKeywordIdeasRequest")
-                            request.customer_id = customer_id
-                            request.keyword_plan_network = client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH
-                            request.language = client.get_service("GoogleAdsService").language_constant_path("1000")
-                            
-                            geo_map = {'US': '2840', 'UK': '2826', 'CA': '2124'}
-                            geo_id = geo_map.get(country, '2840')
-                            request.geo_target_constants.append(
-                                client.get_service("GoogleAdsService").geo_target_constant_path(geo_id)
-                            )
-                            request.keyword_seed.keywords.extend(keyword_texts)
-                            
-                            logger.info(f"🎯 Direct API call for {country} with geo_id {geo_id}")
-                            response = keyword_service.generate_keyword_ideas(request=request)
-                            
-                            # Process results - EXACT same pattern as working test
-                            keyword_metrics = []
-                            results = list(response.results)
-                            logger.info(f"📊 API SUCCESS: {len(results)} keyword ideas for {country}")
-                            
-                            # Create metrics using working pattern
-                            for result in results[:len(keyword_texts)]:  # Take first N results
-                                idea_metrics = result.keyword_idea_metrics
-                                keyword_metric = {
-                                    'keyword': result.text,
-                                    'keyword_id': keyword_id_map.get(result.text),  # Map to keyword ID
-                                    'avg_monthly_searches': idea_metrics.avg_monthly_searches if idea_metrics else 0,
-                                    'competition_level': idea_metrics.competition.name if idea_metrics and idea_metrics.competition else "UNKNOWN"
-                                }
-                                keyword_metrics.append(keyword_metric)
-                                logger.info(f"✅ {result.text}: {keyword_metric['avg_monthly_searches']} searches, {keyword_metric['competition_level']} competition")
-                            
-                            country_metrics[country] = keyword_metrics
-                            
-                            # 💾 HOT FIX: Store Google Ads data in database  
-                            if keyword_metrics:
-                                logger.info(f"💾 Storing {len(keyword_metrics)} Google Ads metrics for {country}")
-                                await self._store_google_ads_metrics(keyword_metrics, country, str(pipeline_id))
-                            
-                        except Exception as e:
-                            logger.error(f"❌ Direct API call failed for {country}: {e}")
-                            country_metrics[country] = []
+                    total_metrics_collected = 0
                     
-                    logger.info(f"🎉 Direct Google Ads API pattern completed!")
-                    logger.info(f"📊 Total results: {sum(len(m) for m in country_metrics.values())} metrics")
+                    for country, metrics in country_metrics_raw.items():
+                        country_metrics[country] = []
+                        for metric in metrics:
+                            keyword_metric = {
+                                'keyword': metric.keyword,
+                                'keyword_id': keyword_id_map.get(metric.keyword),  # Map to keyword ID
+                                'avg_monthly_searches': metric.avg_monthly_searches,
+                                'competition_level': metric.competition_level
+                            }
+                            country_metrics[country].append(keyword_metric)
+                            total_metrics_collected += 1
+                        
+                        logger.info(f"✅ {country}: Collected {len(country_metrics[country])} keyword metrics")
+                    
+                    logger.info(f"🎉 Google Ads batch processing completed!")
+                    logger.info(f"📊 Total metrics collected: {total_metrics_collected} across {len(regions)} regions")
                     
                 except Exception as e:
                     logger.error(f"💥 Google Ads direct pattern failed: {str(e)}")
@@ -1364,6 +2265,53 @@ class PipelineService:
             else:
                 logger.warning("Google Ads service not available - skipping keyword metrics enrichment")
                 country_metrics = {country: [] for country in config.regions}
+            
+            # DataForSEO Fallback: If Google Ads returned no metrics, try DataForSEO
+            if total_metrics_collected == 0 and hasattr(self.settings, 'DATAFORSEO_LOGIN') and self.settings.DATAFORSEO_LOGIN:
+                logger.info(f"🔄 Google Ads returned no metrics, falling back to DataForSEO...")
+                
+                try:
+                    from app.services.keywords.dataforseo_service import DataForSEOService
+                    dataforseo_service = DataForSEOService()
+                    await dataforseo_service.initialize()
+                    
+                    # Process each country
+                    for country in regions:
+                        logger.info(f"🔍 DataForSEO: Processing {len(keyword_texts)} keywords for {country}")
+                        
+                        try:
+                            metrics = await dataforseo_service.get_keyword_metrics_by_country(
+                                keywords=keyword_texts,
+                                country_code=country,
+                                pipeline_execution_id=str(pipeline_id)
+                            )
+                            
+                            # Map metrics to keyword IDs
+                            mapped_metrics = []
+                            for metric in metrics:
+                                keyword_metric = {
+                                    'keyword': metric['keyword'],
+                                    'keyword_id': keyword_id_map.get(metric['keyword']),
+                                    'avg_monthly_searches': metric['avg_monthly_searches'],
+                                    'competition_level': metric['competition_level']
+                                }
+                                mapped_metrics.append(keyword_metric)
+                                total_metrics_collected += 1
+                            
+                            country_metrics[country] = mapped_metrics
+                            logger.info(f"✅ DataForSEO {country}: Collected {len(mapped_metrics)} keyword metrics")
+                            
+                        except Exception as e:
+                            logger.error(f"❌ DataForSEO failed for {country}: {str(e)}")
+                            country_metrics[country] = []
+                    
+                    await dataforseo_service.close()
+                    logger.info(f"🎉 DataForSEO fallback completed! Total metrics: {total_metrics_collected}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ DataForSEO fallback failed: {str(e)}")
+                    import traceback
+                    logger.error(f"Full traceback: {traceback.format_exc()}")
             
             # Calculate results
             total_keywords_with_metrics = 0
@@ -1460,33 +2408,60 @@ class PipelineService:
             )
             return [dict(row) for row in results]
     
-    async def _get_all_keywords(self) -> List[Dict]:
-        """Get all keyword records"""
+    async def _get_all_keywords(self, active_only: bool = False) -> List[Dict]:
+        """Get all keyword records, optionally filtering to active-only."""
         async with db_pool.acquire() as conn:
-            results = await conn.fetch(
-                """
-                SELECT id, keyword, category, jtbd_stage
-                FROM keywords 
-                ORDER BY keyword
-                """
-            )
+            if active_only:
+                results = await conn.fetch(
+                    """
+                    SELECT id, keyword, category, jtbd_stage
+                    FROM keywords 
+                    WHERE is_active IS DISTINCT FROM false
+                    ORDER BY keyword
+                    """
+                )
+            else:
+                results = await conn.fetch(
+                    """
+                    SELECT id, keyword, category, jtbd_stage
+                    FROM keywords 
+                    ORDER BY keyword
+                    """
+                )
             return [dict(row) for row in results]
     
     async def _get_unique_serp_domains(self) -> List[str]:
-        """Get unique domains from all SERP results"""
+        """Get unique domains from SERP results prioritized by traffic and frequency"""
         try:
             async with self.db.acquire() as conn:
                 result = await conn.fetch(
                     """
-                    SELECT DISTINCT domain 
+                    SELECT 
+                        domain,
+                        COUNT(*) as serp_count,
+                        COUNT(DISTINCT keyword_id) as keyword_count,
+                        SUM(COALESCE(estimated_traffic, 0)) as total_traffic,
+                        AVG(position) as avg_position
                     FROM serp_results 
                     WHERE domain IS NOT NULL 
                     AND domain != ''
-                    AND created_at >= NOW() - INTERVAL '24 hours'
-                    ORDER BY domain
+                    AND pipeline_execution_id = $1
+                    GROUP BY domain
+                    ORDER BY 
+                        serp_count DESC,      -- Most SERP appearances first
+                        keyword_count DESC,   -- Most keywords second  
+                        total_traffic DESC,   -- Most traffic third
+                        avg_position ASC      -- Best positions fourth
                     """
-                )
-                return [row['domain'] for row in result]
+                , self.current_pipeline_id)
+                
+                domains = [row['domain'] for row in result]
+                logger.info(f"🎯 Prioritized {len(domains)} domains for enrichment by traffic/frequency")
+                if result:
+                    top_domain = result[0]
+                    logger.info(f"Top priority: {top_domain['domain']} ({top_domain['serp_count']} SERP, {top_domain['keyword_count']} keywords)")
+                
+                return domains
         except Exception as e:
             logger.error(f"Error getting unique SERP domains: {e}")
             return []
@@ -1502,10 +2477,10 @@ class PipelineService:
                     WHERE serp_type = 'video'
                     AND url IS NOT NULL 
                     AND url != ''
-                    AND created_at >= NOW() - INTERVAL '24 hours'
+                    AND pipeline_execution_id = $1
                     ORDER BY url
                     """
-                )
+                , self.current_pipeline_id)
                 return [row['url'] for row in result]
         except Exception as e:
             logger.error(f"Error getting video URLs: {e}")
@@ -1515,6 +2490,8 @@ class PipelineService:
         """Get content URLs from SERP results for scraping"""
         try:
             async with self.db.acquire() as conn:
+                # Get all URLs from this pipeline's SERP results
+                # The _filter_unscraped_urls method will handle filtering out already scraped URLs
                 result = await conn.fetch(
                     """
                     SELECT DISTINCT url, MIN(position) as min_position
@@ -1522,11 +2499,13 @@ class PipelineService:
                     WHERE serp_type IN ('organic', 'news')
                     AND url IS NOT NULL 
                     AND url != ''
-                    AND created_at >= NOW() - INTERVAL '24 hours'
+                    AND pipeline_execution_id = $1
                     GROUP BY url
                     ORDER BY min_position, url
-                    """
+                    """,
+                    self.current_pipeline_id
                 )
+                logger.info(f"Found {len(result)} total URLs from SERP results")
                 return [row['url'] for row in result]
         except Exception as e:
             logger.error(f"Error getting content URLs: {e}")
@@ -1541,8 +2520,7 @@ class PipelineService:
                     """
                     SELECT DISTINCT yv.channel_custom_url, yv.channel_description
                     FROM youtube_videos yv
-                    WHERE yv.created_at >= NOW() - INTERVAL '24 hours'
-                    AND yv.channel_custom_url IS NOT NULL
+                    WHERE yv.channel_custom_url IS NOT NULL
                     AND yv.channel_custom_url != ''
                     """
                 )
@@ -1580,16 +2558,25 @@ class PipelineService:
         if not urls:
             return []
         
+        # Normalize URLs to maximize cache hits and skip previously scraped variants
+        try:
+            normalize = getattr(self.web_scraper, '_normalize_url', None)
+            normalized_map = {u: (normalize(u) if normalize else u) for u in urls}
+            lookup_urls = list({*urls, *normalized_map.values()})
+        except Exception:
+            normalized_map = {u: u for u in urls}
+            lookup_urls = urls
+        
         async with db_pool.acquire() as conn:
             scraped = await conn.fetch(
                 """
                 SELECT url FROM scraped_content 
                 WHERE url = ANY($1::text[]) AND status = 'completed'
                 """,
-                urls
+                lookup_urls
             )
             scraped_urls = {row['url'] for row in scraped}
-            return [url for url in urls if url not in scraped_urls]
+            return [u for u in urls if u not in scraped_urls and normalized_map.get(u) not in scraped_urls]
     
     async def _store_scraped_content(self, result: Dict) -> None:
         """Store scraped content in database"""
@@ -1601,14 +2588,28 @@ class PipelineService:
         # Extract domain from URL
         parsed_url = urlparse(result['url'])
         domain = parsed_url.netloc
+        # Normalize status based on content quality
+        content_text = result.get('content') or ''
+        has_quality_content = isinstance(content_text, str) and len(content_text.strip()) >= 100
+        status_value = 'completed' if has_quality_content else 'failed'
+        # Map error string to error_message column
+        error_message = None
+        try:
+            raw_error = result.get('error')
+            if isinstance(raw_error, str) and raw_error:
+                error_message = raw_error
+            elif isinstance(result.get('meta_description'), str) and result.get('meta_description', '').startswith('error:'):
+                error_message = result.get('meta_description')
+        except Exception:
+            error_message = None
         
         async with db_pool.acquire() as conn:
             await conn.execute(
                 """
                 INSERT INTO scraped_content (
                     url, domain, title, content, html, meta_description,
-                    word_count, content_type, scraped_at, status
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    word_count, content_type, scraped_at, status, pipeline_execution_id, error_message
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 ON CONFLICT (url) DO UPDATE SET
                     title = EXCLUDED.title,
                     content = EXCLUDED.content,
@@ -1617,7 +2618,9 @@ class PipelineService:
                     word_count = EXCLUDED.word_count,
                     content_type = EXCLUDED.content_type,
                     scraped_at = EXCLUDED.scraped_at,
-                    status = EXCLUDED.status
+                    status = EXCLUDED.status,
+                    pipeline_execution_id = COALESCE(EXCLUDED.pipeline_execution_id, scraped_content.pipeline_execution_id),
+                    error_message = COALESCE(EXCLUDED.error_message, scraped_content.error_message)
                 """,
                 result.get('url'),
                 domain,
@@ -1628,7 +2631,9 @@ class PipelineService:
                 result.get('word_count', 0),
                 result.get('content_type', 'text/html'),
                 datetime.utcnow(),
-                'completed' if result.get('content') else 'failed'
+                status_value,
+                result.get('pipeline_execution_id'),
+                error_message
             )
     
     async def _get_unanalyzed_content(self) -> List[Dict]:
@@ -1666,6 +2671,84 @@ class PipelineService:
     
     async def _save_pipeline_state(self, result: PipelineResult):
         """Save pipeline state to database"""
+        # Slim down phase_results before persisting to avoid huge JSONB payloads
+        def _summarize_list(values, sample_size: int = 50):
+            if not isinstance(values, list):
+                return values
+            total = len(values)
+            sample = values[:sample_size]
+            return {
+                "total": total,
+                "sample": sample,
+            }
+
+        def _truncate_phase_results(phase_results: Dict[str, Any]) -> Dict[str, Any]:
+            try:
+                if not isinstance(phase_results, dict):
+                    return phase_results
+
+                slim: Dict[str, Any] = {}
+                # Per‑phase slimming rules
+                for phase_key, phase_val in phase_results.items():
+                    if not isinstance(phase_val, dict):
+                        slim[phase_key] = phase_val
+                        continue
+
+                    slim_phase = dict(phase_val)
+
+                    # Known large arrays from SERP collection
+                    for heavy_key in ("unique_domains", "video_urls", "content_urls"):
+                        if heavy_key in slim_phase:
+                            slim_phase[heavy_key] = _summarize_list(slim_phase.get(heavy_key) or [], 50)
+
+                    # Generic trimming for any unexpected large lists
+                    for k, v in list(slim_phase.items()):
+                        if isinstance(v, list) and len(v) > 200:
+                            slim_phase[k] = _summarize_list(v, 50)
+
+                    # Errors/warnings: cap to first 200 entries
+                    for log_key in ("errors", "warnings"):
+                        if isinstance(slim_phase.get(log_key), list) and len(slim_phase[log_key]) > 200:
+                            slim_phase[log_key] = slim_phase[log_key][:200]
+
+                    slim[phase_key] = slim_phase
+
+                return slim
+            except Exception:
+                # On any failure, fallback to minimal counts only
+                try:
+                    return {k: {"success": bool(v.get("success"))} if isinstance(v, dict) else v for k, v in phase_results.items()}
+                except Exception:
+                    return {}
+
+        # Build slim payload and measure sizes for observability
+        slim_phase_results = _truncate_phase_results(result.phase_results)
+        phase_results_json = json.dumps(slim_phase_results, cls=DecimalEncoder)
+        try:
+            original_size = len(json.dumps(result.phase_results, cls=DecimalEncoder).encode("utf-8")) if isinstance(result.phase_results, dict) else 0
+            slim_size = len(phase_results_json.encode("utf-8"))
+            logger.info(f"_save_pipeline_state: phase_results size original={original_size/1024/1024:.2f}MB slim={slim_size/1024/1024:.2f}MB")
+        except Exception:
+            pass
+
+        # Cap phase_results_json if still huge: replace with high‑level summary only
+        MAX_BYTES = 5 * 1024 * 1024  # 5MB safety cap
+        if len(phase_results_json.encode("utf-8")) > MAX_BYTES:
+            summary = {}
+            try:
+                # Derive a minimal summary with per‑phase success and counts if present
+                for phase_key, phase_val in slim_phase_results.items() if isinstance(slim_phase_results, dict) else []:
+                    if isinstance(phase_val, dict):
+                        summary[phase_key] = {
+                            "success": bool(phase_val.get("success", False)),
+                            "results_stored": phase_val.get("total_results") or phase_val.get("results_stored") or phase_val.get("companies_enriched") or phase_val.get("content_analyzed") or 0,
+                        }
+                phase_results_json = json.dumps({"summary": summary})
+                logger.warning("_save_pipeline_state: phase_results exceeded cap; stored summary only")
+            except Exception:
+                phase_results_json = json.dumps({"summary": "trimmed"})
+                logger.warning("_save_pipeline_state: trimming fallback applied")
+
         async with db_pool.acquire() as conn:
             await conn.execute(
                 """
@@ -1696,7 +2779,7 @@ class PipelineService:
                 result.mode.value,
                 result.started_at,
                 result.completed_at,
-                json.dumps(result.phase_results, cls=DecimalEncoder),
+                phase_results_json,
                 result.keywords_processed,
                 result.keywords_with_metrics,
                 result.serp_results_collected,
@@ -1731,6 +2814,13 @@ class PipelineService:
             data['warnings'] = json.loads(data['warnings'] or '[]')
             data['api_calls_made'] = json.loads(data['api_calls_made'] or '{}')
             
+            # Ensure required fields have defaults
+            data.setdefault('current_phase', None)
+            data.setdefault('phases_completed', [])
+            data.setdefault('content_types', [])
+            data.setdefault('regions', [])
+            data.setdefault('mode', 'batch_optimized')
+            
             return PipelineResult(**data)
     
     async def _broadcast_status(self, pipeline_id: UUID, message: str):
@@ -1755,6 +2845,26 @@ class PipelineService:
                 
                 for metric in keyword_metrics:
                     try:
+                        # Resolve keyword_id if missing by normalized lookup
+                        kw_id = metric.get('keyword_id')
+                        if not kw_id:
+                            kw_text = (metric.get('keyword') or '').strip()
+                            if kw_text:
+                                row = await conn.fetchrow(
+                                    """
+                                    SELECT id FROM keywords 
+                                    WHERE lower(keyword) = lower($1)
+                                    LIMIT 1
+                                    """,
+                                    kw_text
+                                )
+                                if row:
+                                    kw_id = row['id']
+                                    metric['keyword_id'] = kw_id
+                        # Skip insert if keyword_id still missing
+                        if not kw_id:
+                            logger.warning(f"Skipping Google Ads metric without keyword_id: {metric.get('keyword')}")
+                            continue
                         await conn.execute("""
                             INSERT INTO historical_keyword_metrics (
                                 snapshot_date, keyword_id, keyword_text, country_code, source,
@@ -1764,7 +2874,7 @@ class PipelineService:
                             ON CONFLICT DO NOTHING
                         """,
                             snapshot_date,
-                            metric.get('keyword_id'),  # Include keyword_id
+                            kw_id,
                             metric['keyword'], 
                             country,
                             'GOOGLE_ADS',
@@ -1891,6 +3001,81 @@ class PipelineService:
             
             logger.info(f"🧹 Cleared {count_result} pipeline executions")
             return count_result
+    
+    async def check_and_trigger_pending_phases(self, pipeline_id: UUID) -> bool:
+        """Check if any phases are pending and can be triggered"""
+        try:
+            async with db_pool.acquire() as conn:
+                # Get pipeline status and phases
+                pipeline = await conn.fetchrow(
+                    "SELECT * FROM pipeline_executions WHERE id = $1",
+                    str(pipeline_id)
+                )
+                
+                if not pipeline or pipeline['status'] != 'running':
+                    return False
+                
+                # Check for pending DSI calculation
+                dsi_phase = await conn.fetchrow(
+                    """
+                    SELECT * FROM pipeline_phase_status 
+                    WHERE pipeline_execution_id = $1 AND phase_name = 'dsi_calculation'
+                    """,
+                    str(pipeline_id)
+                )
+                
+                if dsi_phase and dsi_phase['status'] == 'pending':
+                    # Check if content analysis is complete
+                    content_phase = await conn.fetchrow(
+                        """
+                        SELECT * FROM pipeline_phase_status 
+                        WHERE pipeline_execution_id = $1 AND phase_name = 'content_analysis'
+                        """,
+                        str(pipeline_id)
+                    )
+                    
+                    if content_phase and content_phase['status'] == 'completed':
+                        logger.info(f"Auto-triggering DSI calculation for pipeline {pipeline_id}")
+                        # Update phase to running
+                        await conn.execute(
+                            """
+                            UPDATE pipeline_phase_status 
+                            SET status = 'running', started_at = NOW()
+                            WHERE pipeline_execution_id = $1 AND phase_name = 'dsi_calculation'
+                            """,
+                            str(pipeline_id)
+                        )
+                        
+                        # Execute DSI calculation
+                        result = await self.dsi_calculator.calculate_dsi_rankings(str(pipeline_id))
+                        
+                        # Update phase to completed
+                        await conn.execute(
+                            """
+                            UPDATE pipeline_phase_status 
+                            SET status = 'completed', completed_at = NOW()
+                            WHERE pipeline_execution_id = $1 AND phase_name = 'dsi_calculation'
+                            """,
+                            str(pipeline_id)
+                        )
+                        
+                        # Mark pipeline as complete
+                        await conn.execute(
+                            """
+                            UPDATE pipeline_executions 
+                            SET status = 'completed', completed_at = NOW()
+                            WHERE id = $1
+                            """,
+                            str(pipeline_id)
+                        )
+                        
+                        logger.info(f"DSI calculation completed for pipeline {pipeline_id}")
+                        return True
+                        
+        except Exception as e:
+            logger.error(f"Error checking/triggering pending phases: {e}")
+            
+        return False
     
     async def get_recent_pipelines(self, limit: int = 10) -> List[PipelineResult]:
         """Get recent pipeline executions"""

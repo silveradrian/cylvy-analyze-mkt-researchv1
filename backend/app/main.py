@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from loguru import logger
+import asyncio
 
 from app.core.config import settings
 from app.core.database import db_pool
@@ -34,10 +35,57 @@ async def lifespan(app: FastAPI):
     
     logger.info("Database connection verified")
     
+    # Start pipeline monitor
+    try:
+        from app.services.robustness.pipeline_monitor import pipeline_monitor
+        logger.info("Starting pipeline health monitor...")
+        await pipeline_monitor.start_monitoring()
+        app.state.pipeline_monitor = pipeline_monitor
+    except Exception as e:
+        logger.error(f"Failed to start pipeline monitor: {e}", exc_info=True)
+        # Pipeline monitor is critical for reliability - log but don't crash
+        app.state.pipeline_monitor = None
+    
+    # Resume interrupted pipelines after restart
+    try:
+        from app.services.pipeline.pipeline_resumption import check_and_resume_pipelines
+        logger.info("Checking for interrupted pipelines...")
+        asyncio.create_task(check_and_resume_pipelines())
+    except Exception as e:
+        logger.error(f"Failed to check pipeline resumption: {e}")
+    
+    # Start SERP scheduler if enabled
+    try:
+        if settings.SERP_SCHEDULER_ENABLED:
+            from app.services.pipeline.pipeline_service import PipelineService
+            from app.services.serp.serp_batch_scheduler import SerpBatchScheduler
+            pipeline_service = PipelineService(settings, db_pool)
+            scheduler = SerpBatchScheduler(db_pool, pipeline_service)
+            await scheduler.start()
+            app.state.serp_scheduler = scheduler
+    except Exception as e:
+        logger.error(f"Failed to start SerpBatchScheduler: {e}")
+    
     yield
     
     # Shutdown
     logger.info("Shutting down...")
+    
+    # Stop pipeline monitor
+    try:
+        if hasattr(app.state, 'pipeline_monitor'):
+            logger.info("Stopping pipeline monitor...")
+            await app.state.pipeline_monitor.stop_monitoring()
+    except Exception as e:
+        logger.error(f"Error stopping pipeline monitor: {e}")
+    
+    # Stop SERP scheduler
+    try:
+        if hasattr(app.state, 'serp_scheduler'):
+            await app.state.serp_scheduler.stop()
+    except Exception:
+        pass
+    
     await db_pool.close()
 
 

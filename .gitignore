@@ -81,3 +81,12 @@ temp/
 /frontend/public/uploads/*
 !/frontend/public/uploads/.gitkeep
 
+# Project documentation and scripts
+docs/
+clientsetup/
+exports/
+scripts/
+backend/exports/
+backend/scripts/
+export_sql/
+
