@@ -2,7 +2,7 @@ import httpx
 from bs4 import BeautifulSoup
 import trafilatura
 from typing import Dict, Optional, List, Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
 import asyncio
 from datetime import datetime
 import hashlib
@@ -23,11 +23,21 @@ class WebScraper:
         self.settings = settings
         self.db = db
         self.scrapingbee_api_key = settings.SCRAPINGBEE_API_KEY
-        self.redis_client = None
+        # Initialize Redis cache client if available
+        try:
+            redis_url = getattr(self.settings, 'REDIS_URL', None) or 'redis://redis:6379/0'
+            self.redis_client = redis.from_url(redis_url)
+            logger.info(f"Initialized Redis cache client: {redis_url}")
+        except Exception as e:
+            self.redis_client = None
+            logger.warning(f"Redis initialization failed: {e}")
         self.document_parser = DocumentParser()
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         }
+        # Simple per-domain circuit breaker memory (process-local)
+        self._domain_failures: Dict[str, int] = {}
+        self._circuit_open_until: Dict[str, float] = {}
         self.js_domains = {
             'linkedin.com',
             'facebook.com',
@@ -41,6 +51,14 @@ class WebScraper:
         }
         # Document file extensions
         self.document_extensions = {'.pdf', '.docx', '.doc'}
+        # Concurrency limiter for ScrapingBee - use DEFAULT_SCRAPER_CONCURRENT_LIMIT or 50
+        try:
+            max_sb_conc = int(getattr(self.settings, 'DEFAULT_SCRAPER_CONCURRENT_LIMIT', 50) or 50)
+            logger.info(f"ScrapingBee concurrency limit set to: {max_sb_conc}")
+        except Exception:
+            max_sb_conc = 50
+            logger.warning(f"Using default ScrapingBee concurrency: {max_sb_conc}")
+        self._scrapingbee_semaphore = asyncio.Semaphore(max_sb_conc)
     
     async def scrape(
         self,
@@ -50,10 +68,13 @@ class WebScraper:
         force_scrapingbee: bool = False
     ) -> Dict:
         """Scrape content from a URL or document"""
+        # Normalize URL to improve cache hit rate and avoid duplicate scrapes
+        url = self._normalize_url(url)
         
         # Check if URL points to a document
         if self._is_document_url(url):
             logger.info(f"Detected document URL: {url}")
+            # Always route documents to the document parser. Do NOT send to ScrapingBee.
             return await self._scrape_document(url)
         
         # Check cache first
@@ -63,26 +84,27 @@ class WebScraper:
                 logger.info(f"Cache hit for {url}")
                 return cached
         
-        # Check if ScrapingBee-only mode is enabled
-        scrapingbee_only = getattr(self.settings, 'scrapingbee_only', False)
+        # Always use ScrapingBee for non-document URLs
         scrapingbee_enabled = getattr(self.settings, 'scrapingbee_enabled', True)
-        
-        if scrapingbee_only and scrapingbee_enabled and self.scrapingbee_api_key:
-            logger.info(f"Scraping {url} with ScrapingBee (scrapingbee_only mode)")
-            result = await self._scrape_with_scrapingbee(url)
-        elif force_scrapingbee and self.scrapingbee_api_key:
-            logger.info(f"Scraping {url} with ScrapingBee (forced)")
-            result = await self._scrape_with_scrapingbee(url, use_javascript=use_javascript)
-        elif (use_javascript or force_scrapingbee or self._requires_javascript(url)) and scrapingbee_enabled and self.scrapingbee_api_key:
-            logger.info(f"Scraping {url} with ScrapingBee (JS rendering)")
+        if not self.scrapingbee_api_key or not scrapingbee_enabled:
+            raise Exception("ScrapingBee is required but not configured or disabled")
+        # Prefer JS rendering by default for higher success; ScrapingBee handles non-JS quickly too
+        logger.info(f"Scraping {url} with ScrapingBee (JS by default)")
+        async with self._scrapingbee_semaphore:
             result = await self._scrape_with_scrapingbee(url, use_javascript=True)
-        else:
-            logger.info(f"Scraping {url} with direct HTTP")
-            result = await self._scrape_direct(url)
         
-        # Cache the result
-        if result and result.get('content') and self.redis_client:
-            await self._cache_result(url, result)
+        # Cache or purge based on result quality
+        if self.redis_client:
+            content_text = (result or {}).get('content') if result else None
+            has_quality_content = isinstance(content_text, str) and len(content_text.strip()) >= 100
+            if has_quality_content:
+                await self._cache_result(url, result)
+            else:
+                # Ensure failed/empty results are not left in cache
+                try:
+                    await self._delete_cache(url)
+                except Exception:
+                    pass
         
         return result
     
@@ -150,6 +172,7 @@ class WebScraper:
                     "engine": "direct"
                 }
     
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def _scrape_with_scrapingbee(self, url: str, use_javascript: bool = True) -> Dict[str, Any]:
         """Scrape using ScrapingBee API"""
         if not self.scrapingbee_api_key:
@@ -158,6 +181,22 @@ class WebScraper:
         # Determine if we need special proxy based on domain
         parsed_url = urlparse(url)
         domain = parsed_url.netloc.lower()
+
+        # Circuit breaker: if domain is open (too many recent failures), short-circuit fast
+        import time
+        now = time.time()
+        open_until = self._circuit_open_until.get(domain)
+        if open_until and now < open_until:
+            wait_seconds = int(open_until - now)
+            logger.warning(f"Circuit open for {domain}; skipping scrape for {wait_seconds}s")
+            return {
+                "url": url,
+                "status_code": 503,
+                "error": f"circuit_open:{wait_seconds}s",
+                "scraped_at": datetime.utcnow().isoformat(),
+                "engine": "scrapingbee",
+                "proxy_type": "n/a"
+            }
         
         # Sites that need premium/stealth proxy
         protected_sites = [
@@ -167,14 +206,14 @@ class WebScraper:
         ]
         
         # Heavy sites that need longer timeout
-        heavy_sites = ['openai.com', 'linkedin.com', 'medium.com', 'twitter.com']
+        heavy_sites = ['openai.com', 'linkedin.com', 'medium.com', 'twitter.com', 'kpmg.com', 'capgemini.com']
         
         # Check if we need special proxy
         use_special_proxy = any(site in domain for site in protected_sites)
         is_heavy_site = any(site in domain for site in heavy_sites)
         
         # Set timeout based on site
-        timeout = 60.0 if is_heavy_site else 30.0  # 60s for heavy sites, 30s for others
+        timeout = 90.0 if is_heavy_site else 45.0  # increase timeouts to improve yield
         
         # Try different proxy levels based on site protection needs
         proxy_attempts = []
@@ -232,11 +271,28 @@ class WebScraper:
                         logger.warning(f"ScrapingBee {proxy_value} proxy returned 503, trying next option")
                         last_error = f"{proxy_value} proxy unavailable"
                         continue
+                    elif response.status_code in (404, 410):
+                        # Permanent/not found – do not retry other proxies
+                        logger.warning(f"ScrapingBee non-retryable {response.status_code} for {url} with {proxy_value} proxy")
+                        return {
+                            "url": url,
+                            "status_code": response.status_code,
+                            "error": f"HTTP {response.status_code}",
+                            "scraped_at": datetime.utcnow().isoformat(),
+                            "engine": "scrapingbee",
+                            "proxy_type": proxy_value
+                        }
                     elif response.status_code != 200:
                         logger.warning(f"ScrapingBee error with {proxy_value}: {response.status_code}")
                         last_error = f"HTTP {response.status_code}"
                         if proxy_value != 'stealth':  # Only log fallback if not on last attempt
                             logger.info(f"Attempting fallback to next proxy level for {domain}")
+                        # brief backoff on 5xx to reduce hammering
+                        if 500 <= response.status_code < 600:
+                            try:
+                                await asyncio.sleep(0.5)
+                            except Exception:
+                                pass
                         continue
                     
                     # Process the HTML
@@ -269,6 +325,13 @@ class WebScraper:
                             script.decompose()
                         content_data['content'] = soup.get_text(strip=True, separator=' ')
                     
+                    # Always extract basic metadata for description
+                    try:
+                        soup_md = BeautifulSoup(response.text, 'html.parser')
+                        md = self._extract_metadata(soup_md)
+                    except Exception:
+                        md = {}
+
                     # Ensure we have content
                     if not content_data.get('content'):
                         # Try alternative extraction
@@ -280,9 +343,20 @@ class WebScraper:
                     content_data['html'] = response.text
                     content_data['engine'] = 'scrapingbee'
                     content_data['proxy_type'] = proxy_value
+                    content_data['status_code'] = 200
+                    content_data['url'] = url
+                    content_data['final_url'] = url
+                    content_data['meta_description'] = md.get('description', '')
+                    try:
+                        content_data['word_count'] = len((content_data.get('content') or '').split())
+                    except Exception:
+                        content_data['word_count'] = 0
                     
                     proxy_desc = "standard" if proxy_value == 'false' else proxy_value
                     logger.info(f"Successfully scraped {url} with {proxy_desc} proxy")
+                    # Reset circuit breaker on success
+                    self._domain_failures.pop(domain, None)
+                    self._circuit_open_until.pop(domain, None)
                     return content_data
                     
                 except httpx.ReadTimeout:
@@ -294,7 +368,14 @@ class WebScraper:
                     last_error = str(e)
                     continue
         
-        # All attempts failed
+        # All attempts failed: increment domain failures and possibly open circuit
+        failures = self._domain_failures.get(domain, 0) + 1
+        self._domain_failures[domain] = failures
+        # Exponential open window: 3, 6, 12, 24 seconds (cap 60s)
+        backoff_seconds = min(3 * (2 ** max(failures - 1, 0)), 60)
+        if failures >= 3:
+            self._circuit_open_until[domain] = time.time() + backoff_seconds
+            logger.warning(f"Opening circuit for {domain} for {backoff_seconds}s after {failures} failures")
         raise Exception(f"All proxy attempts failed. Last error: {last_error}")
     
     def _extract_with_beautifulsoup(self, html: str) -> Dict:
@@ -379,11 +460,15 @@ class WebScraper:
         """Check if URL points to a document file"""
         parsed_url = urlparse(url)
         path = parsed_url.path.lower()
+        query = (parsed_url.query or '').lower()
         
         # Check file extension
         for ext in self.document_extensions:
             if path.endswith(ext):
                 return True
+        # Heuristic: many PDFs carry params like ?pdf=download or append extra segments
+        if '.pdf' in path or '.pdf' in query:
+            return True
         
         # Check content-type if we can do a HEAD request
         # (This is done in _scrape_document to avoid extra requests)
@@ -392,19 +477,18 @@ class WebScraper:
     async def _scrape_document(self, url: str) -> Dict:
         """Scrape content from a document (PDF, Word, etc.)"""
         try:
-            # First check if it's actually a document with HEAD request
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                head_response = await client.head(url, headers=self.headers, follow_redirects=True)
-                content_type = head_response.headers.get('content-type', '').lower()
-                
-                # If not a document, fall back to regular scraping
-                if not any(doc_type in content_type for doc_type in ['pdf', 'document', 'msword', 'wordprocessingml']):
-                    # Check file extension as fallback
-                    if not self._is_document_url(url):
-                        logger.info(f"URL {url} is not a document, falling back to regular scraping")
-                        return await self._scrape_direct(url)
-            
-            # Parse the document
+            # Prefer extension heuristic; only use HEAD to refine, never to fall back to HTML
+            try:
+                async with httpx.AsyncClient(timeout=20.0) as client:
+                    head_response = await client.head(url, headers=self.headers, follow_redirects=True)
+                    content_type = head_response.headers.get('content-type', '').lower()
+                    if any(doc_type in content_type for doc_type in ['pdf', 'document', 'msword', 'wordprocessingml']):
+                        pass  # Confirmed as document
+            except Exception:
+                # Ignore HEAD failures and continue to document parsing
+                content_type = ''
+
+            # Parse the document (download and extract text)
             result = await self.document_parser.parse_document_from_url(url)
             
             # Transform result to match expected scraping format
@@ -467,7 +551,55 @@ class WebScraper:
     
     def _get_cache_key(self, url: str) -> str:
         """Generate cache key for URL"""
-        return f"scrape:{hashlib.md5(url.encode()).hexdigest()}"
+        normalized = self._normalize_url(url)
+        return f"scrape:{hashlib.md5(normalized.encode()).hexdigest()}"
+
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URLs by stripping tracking params, fragments, and standardizing host.
+
+        Keeps functional query params but removes common trackers (utm_*, gclid, fbclid, etc.).
+        """
+        try:
+            parsed = urlparse(url)
+            # Lowercase scheme and netloc
+            scheme = (parsed.scheme or 'http').lower()
+            netloc = parsed.netloc.lower()
+            # Remove default ports
+            if netloc.endswith(':80') and scheme == 'http':
+                netloc = netloc[:-3]
+            if netloc.endswith(':443') and scheme == 'https':
+                netloc = netloc[:-4]
+
+            # Strip common tracking parameters
+            tracking_prefixes = ('utm_',)
+            tracking_exact = {
+                'gclid', 'fbclid', 'msclkid', 'yclid', 'mc_cid', 'mc_eid', 'mkt_tok',
+                'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+                'ref', 'ref_src', 'spm', 'igshid'
+            }
+            query_pairs = parse_qsl(parsed.query, keep_blank_values=False)
+            filtered = []
+            for k, v in query_pairs:
+                lk = k.lower()
+                if lk in tracking_exact or any(lk.startswith(p) for p in tracking_prefixes):
+                    continue
+                filtered.append((k, v))
+            # Sort for stability
+            filtered.sort()
+            query = urlencode(filtered, doseq=True)
+
+            # Remove fragment
+            fragment = ''
+
+            # Normalize path: remove trailing slash except root
+            path = parsed.path or '/'
+            if path != '/' and path.endswith('/'):
+                path = path[:-1]
+
+            normalized = urlunparse((scheme, netloc, path, '', query, fragment))
+            return normalized
+        except Exception:
+            return url
     
     async def _get_from_cache(self, url: str) -> Optional[Dict]:
         """Get scraped content from cache"""
@@ -476,14 +608,23 @@ class WebScraper:
                 cache_key = self._get_cache_key(url)
                 cached = await self.redis_client.get(cache_key)
                 if cached:
-                    return json.loads(cached)
+                    data = json.loads(cached)
+                    # Validate cached payload has usable content; otherwise purge and ignore
+                    content_text = data.get('content') if isinstance(data, dict) else None
+                    if not isinstance(content_text, str) or len(content_text.strip()) < 100 or data.get('error'):
+                        try:
+                            await self.redis_client.delete(cache_key)
+                        except Exception:
+                            pass
+                        return None
+                    return data
             except Exception as e:
                 logger.error(f"Cache get error: {e}")
         return None
     
     async def _cache_result(self, url: str, result: Dict):
         """Cache scraped content for 7 days"""
-        if self.redis_client and result.get('content'):
+        if self.redis_client and isinstance(result.get('content'), str) and len(result.get('content').strip()) >= 100:
             try:
                 cache_key = self._get_cache_key(url)
                 await self.redis_client.setex(
@@ -493,6 +634,16 @@ class WebScraper:
                 )
             except Exception as e:
                 logger.error(f"Cache set error: {e}")
+
+    async def _delete_cache(self, url: str) -> None:
+        """Delete a cached entry for a URL if present"""
+        if not self.redis_client:
+            return
+        try:
+            cache_key = self._get_cache_key(url)
+            await self.redis_client.delete(cache_key)
+        except Exception as e:
+            logger.error(f"Cache delete error: {e}")
     
     async def batch_scrape(
         self,

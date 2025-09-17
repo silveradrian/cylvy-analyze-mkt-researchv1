@@ -133,7 +133,7 @@ class SchedulingService:
                 """
                 INSERT INTO pipeline_schedules (
                     id, name, description, is_active, content_schedules,
-                    keywords, regions, max_concurrent_executions,
+                    custom_keywords, regions, max_concurrent_executions,
                     notification_emails, notify_on_completion, notify_on_error,
                     created_at, updated_at, next_execution_at
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
@@ -142,11 +142,11 @@ class SchedulingService:
                 schedule.name,
                 schedule.description,
                 schedule.is_active,
-                json.dumps([cs.dict() for cs in schedule.content_schedules]),
+                json.dumps([self._content_schedule_to_dict(cs) for cs in schedule.content_schedules]),
                 json.dumps(schedule.keywords) if schedule.keywords else None,
-                json.dumps(schedule.regions),
+                schedule.regions,  # Pass as array, not JSON string
                 schedule.max_concurrent_executions,
-                json.dumps(schedule.notification_emails) if schedule.notification_emails else None,
+                schedule.notification_emails,  # Pass as array, not JSON string
                 schedule.notify_on_completion,
                 schedule.notify_on_error,
                 schedule.created_at,
@@ -167,6 +167,10 @@ class SchedulingService:
         # Apply updates
         for key, value in updates.items():
             if hasattr(current, key):
+                # Special handling for content_schedules
+                if key == 'content_schedules' and isinstance(value, list):
+                    # Convert dicts to ContentTypeSchedule objects
+                    value = [ContentTypeSchedule(**cs) if isinstance(cs, dict) else cs for cs in value]
                 setattr(current, key, value)
         
         current.updated_at = datetime.utcnow()
@@ -181,7 +185,7 @@ class SchedulingService:
                 """
                 UPDATE pipeline_schedules SET
                     name = $2, description = $3, is_active = $4,
-                    content_schedules = $5, keywords = $6, regions = $7,
+                    content_schedules = $5, custom_keywords = $6, regions = $7,
                     max_concurrent_executions = $8, notification_emails = $9,
                     notify_on_completion = $10, notify_on_error = $11,
                     updated_at = $12, next_execution_at = $13
@@ -191,11 +195,11 @@ class SchedulingService:
                 current.name,
                 current.description,
                 current.is_active,
-                json.dumps([cs.dict() for cs in current.content_schedules]),
+                json.dumps([self._content_schedule_to_dict(cs) for cs in current.content_schedules]),
                 json.dumps(current.keywords) if current.keywords else None,
-                json.dumps(current.regions),
+                current.regions,  # Pass as array, not JSON string
                 current.max_concurrent_executions,
-                json.dumps(current.notification_emails) if current.notification_emails else None,
+                current.notification_emails,  # Pass as array, not JSON string
                 current.notify_on_completion,
                 current.notify_on_error,
                 current.updated_at,
@@ -636,12 +640,30 @@ class SchedulingService:
         # TODO: Implement email/webhook notifications
         logger.info(f"Notification: Schedule '{schedule.name}' execution {event_type}")
     
+    def _content_schedule_to_dict(self, cs: ContentTypeSchedule) -> dict:
+        """Convert ContentTypeSchedule to dict with proper serialization"""
+        data = cs.dict()
+        # Convert time object to string
+        if 'time_of_day' in data and data['time_of_day'] is not None:
+            data['time_of_day'] = data['time_of_day'].isoformat()
+        return data
+    
     def _row_to_schedule(self, row) -> PipelineSchedule:
         """Convert database row to PipelineSchedule"""
         data = dict(row)
         
         # Parse JSON fields
         content_schedules_data = json.loads(data['content_schedules'] or '[]')
+        # Convert time strings back to time objects
+        for cs_data in content_schedules_data:
+            if 'time_of_day' in cs_data and isinstance(cs_data['time_of_day'], str):
+                # Parse time string (HH:MM:SS)
+                time_parts = cs_data['time_of_day'].split(':')
+                cs_data['time_of_day'] = time(
+                    int(time_parts[0]), 
+                    int(time_parts[1]), 
+                    int(time_parts[2]) if len(time_parts) > 2 else 0
+                )
         data['content_schedules'] = [
             ContentTypeSchedule(**cs_data) for cs_data in content_schedules_data
         ]
@@ -655,8 +677,8 @@ class SchedulingService:
         # Regions is already an array from the database, no need to parse JSON
         data['regions'] = data['regions'] or ["US", "UK"]
         
-        if data['notification_emails']:
-            data['notification_emails'] = json.loads(data['notification_emails'])
+        # notification_emails is already an array from the database
+        # No need to parse JSON
         
         return PipelineSchedule(**data)
 

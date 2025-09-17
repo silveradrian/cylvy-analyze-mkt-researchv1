@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import CompanyProfileStep from '@/components/setup/CompanyProfileStep';
 import PersonasStep from '@/components/setup/PersonasStep';
 import { CountriesKeywordsStep } from '@/components/setup/CountriesKeywordsStep';
-import AnalysisConfigStep from '@/components/setup/AnalysisConfigStep';
 import VerifyStep from '@/components/setup/VerifyStep';
 
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -16,7 +15,6 @@ const SETUP_STEPS = [
   { id: 'company', title: 'Company Profile', component: CompanyProfileStep },
   { id: 'personas', title: 'Buyer Personas', component: PersonasStep },
   { id: 'countries', title: 'Countries & Keywords', component: CountriesKeywordsStep },
-  { id: 'analysis', title: 'Analysis Settings', component: AnalysisConfigStep },
   { id: 'verify', title: 'Verify & Launch', component: VerifyStep }
 ];
 
@@ -306,6 +304,12 @@ export default function SetupWizard() {
     router.push('/');
   };
 
+  const handleSaveOnly = (stepData: any) => {
+    // Save current step data without advancing to next step
+    const newSetupData = { ...setupData, ...stepData };
+    setSetupData(newSetupData);
+  };
+
   const handleLogin = async (email: string, password: string) => {
     try {
       const response = await fetch('/api/v1/auth/login', {
@@ -401,12 +405,20 @@ export default function SetupWizard() {
               onPrev={handlePreviousStep}
             />
           ) : (
-            <CurrentStepComponent
-              data={setupData}
-              onComplete={handleStepComplete}
-              onBack={currentStep > 0 ? handlePreviousStep : undefined}
-              onFinish={currentStep === SETUP_STEPS.length - 1 ? handleFinishSetup : undefined}
-            />
+            currentStep === 2 ? (
+              <CountriesKeywordsStep
+                data={setupData}
+                onComplete={handleSaveOnly}
+                onBack={currentStep > 0 ? handlePreviousStep : undefined}
+              />
+            ) : (
+              <CurrentStepComponent
+                data={setupData}
+                onComplete={handleStepComplete}
+                onBack={currentStep > 0 ? handlePreviousStep : undefined}
+                onFinish={currentStep === SETUP_STEPS.length - 1 ? handleFinishSetup : undefined}
+              />
+            )
           )}
         </div>
       </div>

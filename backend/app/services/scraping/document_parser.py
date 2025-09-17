@@ -54,6 +54,17 @@ class DocumentParser:
             # Clean up the text
             text = text.strip()
             text = ' '.join(text.split())  # Normalize whitespace
+
+            # Fallback: pdfminer.six if PyPDF2 extracted too little
+            if len(text) < 200:
+                try:
+                    from pdfminer.high_level import extract_text
+                    mined = extract_text(io.BytesIO(content)) or ""
+                    mined = ' '.join(mined.split())
+                    if len(mined) >= len(text):
+                        text = mined
+                except Exception as e:
+                    logger.warning(f"pdfminer fallback failed: {e}")
             
             return {
                 "content": text,

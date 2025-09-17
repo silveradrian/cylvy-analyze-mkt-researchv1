@@ -151,10 +151,9 @@ async def trigger_pipeline_from_webhook(
             # from the same schedule period before processing
             pass
         
-        # Initialize services
+        # Initialize settings
         from app.core.config import get_settings
         settings = get_settings()
-        pipeline_service = PipelineService(settings, db)
         
         # Determine which phases to run based on content type
         enable_company_enrichment = True
@@ -191,30 +190,49 @@ async def trigger_pipeline_from_webhook(
         logger.info(f"🔧 Pipeline config: content_types={config.content_types}, regions={config.regions}")
         logger.info(f"🔧 Phases enabled: company_enrichment={enable_company_enrichment}, youtube_enrichment={enable_youtube_enrichment}")
         
-        # Start the pipeline
-        pipeline_id = await pipeline_service.start_pipeline(config)
-        
-        if pipeline_id:
-            logger.info(f"✅ Pipeline started successfully from webhook batch {batch_id} with ID: {pipeline_id}")
-            
-            # Store batch completion record for tracking
+        # Record completion only; coordinator will decide when to start a pipeline
+        try:
+            from uuid import UUID
+            from datetime import datetime as _dt
+            from app.services.serp.serp_batch_coordinator import SerpBatchCoordinator
+            from app.core.database import db_pool as _pool
+
+            # Derive a project_id and period_date; for now use a single-project mode if not present
+            # TODO: parse project_id from webhook payload when available
+            project_id = UUID("00000000-0000-0000-0000-000000000001")
+            period_date = _dt.utcnow().date()
+
+            coordinator = SerpBatchCoordinator(_pool, PipelineService(settings, db))
+            await coordinator.record_batch_completion(
+                project_id=project_id,
+                content_type=content_type or "organic",
+                period_date=period_date,
+                batch_id=batch_id,
+                result_set_id=result_set_id,
+                download_links=download_links
+            )
+
+            if settings.WEBHOOK_STARTS_PIPELINE:
+                await coordinator.try_start_pipeline(project_id, period_date)
+
+            # Store batch completion record for tracking (legacy table)
             async with db_pool.acquire() as conn:
                 await conn.execute(
                     """
                     INSERT INTO webhook_batch_completions (
                         batch_id, batch_name, content_type, result_set_id,
-                        completed_at, pipeline_id, success
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        completed_at, success
+                    ) VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (batch_id) DO UPDATE SET
                         completed_at = EXCLUDED.completed_at,
-                        pipeline_id = EXCLUDED.pipeline_id,
                         success = EXCLUDED.success
                     """,
                     batch_id, batch_name, content_type, result_set_id,
-                    datetime.utcnow(), pipeline_id, True
+                    datetime.utcnow(), True
                 )
-        else:
-            logger.error(f"❌ Pipeline failed to start from webhook batch {batch_id}")
+            logger.info(f"✅ Recorded webhook batch {batch_id} for coordination")
+        except Exception as e:
+            logger.error(f"❌ Failed to record webhook batch {batch_id}: {e}")
             
     except Exception as e:
         logger.error(f"❌ Error triggering pipeline from webhook: {e}")

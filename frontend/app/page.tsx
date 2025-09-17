@@ -171,7 +171,7 @@ export default function Dashboard() {
       {loading && (
         <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-white p-8 rounded-lg shadow-lg">
-            <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cylvy-purple"></div>
               <p className="text-lg font-medium">Loading configuration...</p>
             </div>
@@ -305,8 +305,8 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
-        </div>
-
+          </div>
+          
         {/* System Status */}
         <Card>
           <CardHeader>
@@ -333,7 +333,7 @@ export default function Dashboard() {
                 <div>
                   <p className="text-sm font-medium">Data Collection</p>
                   <p className="text-xs text-gray-500">Running smoothly</p>
-                </div>
+            </div>
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
@@ -342,9 +342,9 @@ export default function Dashboard() {
                 <div>
                   <p className="text-sm font-medium">Next Scheduled Run</p>
                   <p className="text-xs text-gray-500">Not configured</p>
-                </div>
-              </div>
             </div>
+          </div>
+        </div>
           </CardContent>
         </Card>
       </div>

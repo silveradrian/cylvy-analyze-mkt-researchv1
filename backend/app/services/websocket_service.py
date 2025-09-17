@@ -36,7 +36,9 @@ class WebSocketService:
             "connected_at": datetime.utcnow()
         }
         
-        logger.info(f"WebSocket connected to channel '{channel}' (user: {user_id})")
+        # Only log specific channels, not generic ones to reduce noise
+        if channel != "general":
+            logger.info(f"WebSocket connected to channel '{channel}' (user: {user_id})")
     
     async def disconnect(self, websocket: WebSocket):
         """Disconnect a WebSocket"""
@@ -55,7 +57,9 @@ class WebSocketService:
         # Remove metadata
         del self._connection_info[websocket]
         
-        logger.info(f"WebSocket disconnected from channel '{channel}'")
+        # Only log specific channels, not generic ones to reduce noise
+        if channel != "general":
+            logger.info(f"WebSocket disconnected from channel '{channel}'")
     
     async def send_to_connection(self, websocket: WebSocket, data: Dict[str, Any]):
         """Send data to a specific connection"""

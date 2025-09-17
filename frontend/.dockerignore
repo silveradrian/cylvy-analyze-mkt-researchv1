@@ -1,0 +1,4 @@
+# Minimal .dockerignore - only exclude problematic directories
+node_modules/
+.next/
+.vercel/

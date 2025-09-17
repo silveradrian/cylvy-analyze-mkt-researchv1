@@ -211,13 +211,16 @@ export const keywordsAPI = {
     return apiCall(`/keywords?${queryParams.toString()}`);
   },
 
-  uploadKeywords: async (file: File, regions: string[] = ['US', 'UK']) => {
+  uploadKeywords: async (file: File, regions: string[] = ['US', 'UK'], replace: boolean = true) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('regions', JSON.stringify(regions));
 
     const token = localStorage.getItem('access_token');
-    const response = await fetch(`${API_BASE}/keywords/upload`, {
+    const params = new URLSearchParams();
+    params.set('regions', regions.join(','));
+    if (replace) params.set('replace', 'true');
+
+    const response = await fetch(`${API_BASE}/keywords/upload?${params.toString()}`, {
       method: 'POST',
       headers: {
         ...(token && { Authorization: `Bearer ${token}` }),

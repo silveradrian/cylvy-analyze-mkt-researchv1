@@ -12,6 +12,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import isodate
 from loguru import logger
+import ssl
+import httplib2
 from app.models.video import (
     YouTubeVideoStats, YouTubeChannelStats, VideoSnapshot,
     VideoMetrics, VideoEnrichmentResult
@@ -52,7 +54,14 @@ class YouTubeQuotaManager:
 
 
 class OptimizedVideoEnricher:
-    """Optimized service for enriching YouTube video results"""
+    """Optimized service for enriching YouTube video results
+    
+    Caching Strategy:
+    1. Database check: Skip videos already enriched today (video_snapshots table)
+    2. Redis cache: 7-day cache for video metadata
+    3. Channel cache: Redis + database cache for channel company domains
+    4. Deduplication: Process unique channels only to minimize API calls
+    """
     
     def __init__(self, db: AsyncConnection, settings: Settings, redis_client: Optional[Redis] = None):
         self.db = db
@@ -60,7 +69,43 @@ class OptimizedVideoEnricher:
         self.redis = redis_client
         self.youtube = None
         if settings.YOUTUBE_API_KEY:
-            self.youtube = build('youtube', 'v3', developerKey=settings.YOUTUBE_API_KEY)
+            try:
+                # More robust SSL workaround for Docker environments
+                import ssl
+                import certifi
+                import httplib2
+                
+                # Create a custom SSL context with updated certificates
+                ssl_context = ssl.create_default_context(cafile=certifi.where())
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+                
+                # Create HTTP client with custom SSL context
+                http = httplib2.Http(
+                    disable_ssl_certificate_validation=True,
+                    timeout=30
+                )
+                
+                # Monkey patch the ssl module for Google API client
+                import ssl as ssl_module
+                ssl_module._create_default_https_context = ssl._create_unverified_context
+                
+                self.youtube = build('youtube', 'v3', 
+                                   developerKey=settings.YOUTUBE_API_KEY,
+                                   http=http,
+                                   cache_discovery=False)  # Disable discovery cache to avoid SSL issues
+                logger.info("YouTube API client initialized with enhanced SSL workaround")
+            except Exception as e:
+                logger.error(f"Failed to initialize YouTube API client with SSL workaround: {e}")
+                # Try without SSL workaround as last resort
+                try:
+                    self.youtube = build('youtube', 'v3', 
+                                       developerKey=settings.YOUTUBE_API_KEY,
+                                       cache_discovery=False)
+                    logger.warning("Using default YouTube client (may have SSL issues)")
+                except Exception as e2:
+                    logger.error(f"Failed to initialize fallback YouTube client: {e2}")
+                    self.youtube = None
         self.quota_manager = YouTubeQuotaManager(daily_limit=10000)
         # Increased concurrency for better performance
         self._semaphore = asyncio.Semaphore(getattr(settings, 'video_enricher_concurrent_limit', 10))
@@ -117,10 +162,28 @@ class OptimizedVideoEnricher:
             )
         
         video_ids = list(video_mapping.keys())
-        logger.info(f"Found {len(video_ids)} YouTube videos to enrich")
         
-        # Step 1: Check cache for all videos and channels
-        cached_videos, uncached_ids = await self._bulk_check_cache(video_ids)
+        # Check for existing snapshots from today to avoid re-enrichment
+        existing_videos = await self._check_existing_snapshots(video_ids, client_id)
+        new_video_ids = [vid for vid in video_ids if vid not in existing_videos]
+        
+        logger.info(f"Found {len(video_ids)} YouTube videos: {len(existing_videos)} already enriched today, {len(new_video_ids)} need enrichment")
+        
+        # If all videos are already enriched today, return early
+        if not new_video_ids:
+            return VideoEnrichmentResult(
+                client_id=client_id,
+                enriched_count=0,
+                cached_count=len(existing_videos),
+                failed_count=0,
+                quota_used=0,
+                snapshots=[],
+                processing_time=(datetime.utcnow() - start_time).total_seconds(),
+                success=True  # Mark as success if all videos are already enriched
+            )
+        
+        # Step 1: Check cache for all NEW videos and channels
+        cached_videos, uncached_ids = await self._bulk_check_cache(new_video_ids)
         
         # Step 2: Fetch uncached videos from YouTube API
         new_videos = []
@@ -134,6 +197,16 @@ class OptimizedVideoEnricher:
                     "error": "quota_exceeded",
                     "message": f"Daily quota limit reached. Remaining: {self.quota_manager.get_remaining()}"
                 })
+                # Mark uncached videos as failed
+                for vid_id in uncached_ids:
+                    url, position = video_mapping.get(vid_id, (None, 0))
+                    if url:
+                        errors.append({
+                            "error": "quota_exceeded",
+                            "video_id": vid_id,
+                            "url": url,
+                            "message": "Skipped due to quota limit"
+                        })
             else:
                 try:
                     new_videos = await self._fetch_videos_from_api(uncached_ids)
@@ -142,6 +215,19 @@ class OptimizedVideoEnricher:
                     
                     # Cache new videos
                     await self._bulk_cache_videos(new_videos)
+                    
+                    # Track failed videos
+                    successful_ids = {v.video_id for v in new_videos}
+                    for vid_id in uncached_ids:
+                        if vid_id not in successful_ids:
+                            url, position = video_mapping.get(vid_id, (None, 0))
+                            if url:
+                                errors.append({
+                                    "error": "api_error",
+                                    "video_id": vid_id,
+                                    "url": url,
+                                    "message": "Failed to fetch from YouTube API"
+                                })
                         
                 except Exception as e:
                     logger.error(f"Error fetching videos from YouTube API: {e}")
@@ -149,6 +235,16 @@ class OptimizedVideoEnricher:
                         "error": "api_error",
                         "message": str(e)
                     })
+                    # Mark all uncached videos as failed
+                    for vid_id in uncached_ids:
+                        url, position = video_mapping.get(vid_id, (None, 0))
+                        if url:
+                            errors.append({
+                                "error": "api_error",
+                                "video_id": vid_id,
+                                "url": url,
+                                "message": str(e)
+                            })
         
         # Combine all videos
         all_videos = cached_videos + new_videos
@@ -199,16 +295,64 @@ class OptimizedVideoEnricher:
         
         processing_time = (datetime.utcnow() - start_time).total_seconds()
         
-        return VideoEnrichmentResult(
+        # Determine success based on completion rate
+        total_videos = len(video_ids)
+        successfully_processed = len(all_videos)
+        failed_count = total_videos - successfully_processed
+        success_rate = (successfully_processed / total_videos * 100) if total_videos > 0 else 0
+        
+        # Consider it a success if we processed at least 80% of videos or all eligible videos
+        success = success_rate >= 80 or (failed_count == 0)
+        
+        # If we have quota errors and low success rate, mark as failed
+        if any(e.get('error') == 'quota_exceeded' for e in errors) and success_rate < 50:
+            success = False
+            
+        result = VideoEnrichmentResult(
             client_id=client_id,
             enriched_count=len(new_videos),
             cached_count=len(cached_videos),
-            failed_count=len(video_ids) - len(all_videos),
+            failed_count=failed_count,
             quota_used=quota_used,
             snapshots=snapshots,
             errors=errors,
-            processing_time=processing_time
+            processing_time=processing_time,
+            success=success,
+            success_rate=success_rate,
+            total_videos=total_videos
         )
+        
+        logger.info(f"📹 Video enrichment result: success={success}, rate={success_rate:.1f}%, "
+                   f"total={total_videos}, processed={successfully_processed}, failed={failed_count}")
+        
+        return result
+    
+    async def _check_existing_snapshots(self, video_ids: List[str], client_id: str) -> Set[str]:
+        """Check which videos already have snapshots for today"""
+        existing = set()
+        
+        try:
+            async with self.db.acquire() as conn:
+                today = datetime.utcnow().date()
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT video_id
+                    FROM video_snapshots
+                    WHERE client_id = $1
+                    AND video_id = ANY($2)
+                    AND snapshot_date = $3
+                    """,
+                    client_id,
+                    video_ids,
+                    today
+                )
+                
+                existing = {row['video_id'] for row in rows}
+                
+        except Exception as e:
+            logger.error(f"Error checking existing snapshots: {e}")
+            
+        return existing
     
     async def _bulk_check_cache(self, video_ids: List[str]) -> Tuple[List[YouTubeVideoStats], List[str]]:
         """Check cache for multiple videos at once"""
@@ -288,8 +432,10 @@ class OptimizedVideoEnricher:
             try:
                 channel_stats = await self._fetch_channel_stats(uncached_channel_ids)
                 
-                # Step 3: Batch AI extraction for company domains
-                if channel_stats:
+                # Step 3: Channel company resolution moved to background resolver.
+                # Inline AI enrichment is disabled by default and only runs if explicitly enabled.
+                ai_results = {}
+                if channel_stats and getattr(self.settings, 'VIDEO_ENRICHER_ENABLE_CHANNEL_AI', False):
                     ai_results = await self._batch_extract_company_domains(channel_stats)
                     
                     # Combine results
@@ -377,10 +523,16 @@ class OptimizedVideoEnricher:
             for i in range(0, len(channel_ids), 50):
                 batch_ids = channel_ids[i:i+50]
                 
-                response = self.youtube.channels().list(
-                    part='statistics,snippet',
-                    id=','.join(batch_ids)
-                ).execute()
+                # Run blocking googleapiclient call off the event loop with a timeout
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        lambda: self.youtube.channels().list(
+                            part='statistics,snippet',
+                            id=','.join(batch_ids)
+                        ).execute()
+                    ),
+                    timeout=getattr(self.settings, 'video_enricher_youtube_timeout_s', 20)
+                )
                 
                 for item in response.get('items', []):
                     channel_id = item['id']
@@ -408,20 +560,53 @@ class OptimizedVideoEnricher:
         
         results = {}
         
-        # Process channels in batches of 10 for AI extraction
+        # Process channels in smaller batches to avoid token limits (configurable)
         channel_list = list(channel_stats.items())
-        batch_size = 10
-        
-        for i in range(0, len(channel_list), batch_size):
-            batch = channel_list[i:i+batch_size]
-            
-            try:
-                batch_results = await self._extract_domains_batch(batch)
-                results.update(batch_results)
-            except Exception as e:
-                logger.error(f"Batch AI extraction error: {e}")
+        batch_size = getattr(self.settings, 'video_enricher_ai_batch_size', 20)
+        max_in_flight = getattr(self.settings, 'video_enricher_ai_concurrent_batches', 10)
+
+        # Build all batches first
+        batches = [channel_list[i:i+batch_size] for i in range(0, len(channel_list), batch_size)]
+
+        # Concurrency semaphore
+        semaphore = asyncio.Semaphore(max(1, int(max_in_flight)))
+
+        async def run_batch_with_limits(batch):
+            async with semaphore:
+                return await self._extract_domains_batch_with_retry(batch)
+
+        tasks = [asyncio.create_task(run_batch_with_limits(b)) for b in batches]
+        batch_outputs = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for out in batch_outputs:
+            if isinstance(out, Exception):
+                logger.error(f"Batch AI extraction error: {out}")
+                continue
+            results.update(out or {})
         
         return results
+
+    async def _extract_domains_batch_with_retry(self, channels: List[Tuple[str, Dict]]) -> Dict[str, Dict]:
+        """Wrapper adding retries/backoff for non-JSON or empty responses."""
+        delays = [0.4, 0.8, 1.6]
+        last_err = None
+        for attempt, delay in enumerate([0.0] + delays):
+            if delay:
+                try:
+                    await asyncio.sleep(delay)
+                except Exception:
+                    pass
+            try:
+                res = await self._extract_domains_batch(channels)
+                if res:
+                    return res
+                last_err = last_err or Exception("empty_result")
+            except Exception as e:
+                last_err = e
+                logger.error(f"_extract_domains_batch attempt {attempt+1} failed: {e}")
+                continue
+        logger.error(f"Batch extraction failed after retries: {last_err}")
+        return {}
     
     async def _extract_domains_batch(self, channels: List[Tuple[str, Dict]]) -> Dict[str, Dict]:
         """Extract domains from a batch of channels using a single AI call"""
@@ -432,8 +617,8 @@ class OptimizedVideoEnricher:
             # Build batch context
             channels_context = []
             for idx, (channel_id, data) in enumerate(channels):
-                # Extract URLs from description
-                description = data.get('description', '')[:500]
+                # Extract URLs from description (longer excerpt to leverage large context)
+                description = data.get('description', '')[:2000]
                 url_pattern = r'https?://(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\.[a-zA-Z]{2,})?)'
                 urls = re.findall(url_pattern, description)
                 
@@ -448,40 +633,60 @@ Channel {idx + 1}:
 """)
             
             prompt = f"""
-Analyze the following YouTube channels and extract company domains for each.
+Analyze the following YouTube channels and select the official company domain for each.
 
+Guidelines to select the official domain (apply strictly):
+- Prefer the brand's primary corporate site (e.g., company.com). Avoid social, link shorteners, merch stores, CDNs, tracking or subdomains.
+- Ignore: youtube.com, instagram.com, facebook.com, twitter.com/x.com, t.co, bit.ly, linktr.ee, beacons.ai, patreon.com, shopify.com, teespring.com, amazon.com/store, gumroad.com, substack.com, medium.com.
+- If the channel custom URL/handle clearly maps to a domain, prefer the registrable root (e.g., acme → acme.com) when reasonable.
+- If multiple candidates, choose the one that best matches the channel/brand name and appears to be the parent corporate site.
+- If uncertain, return empty domain and company_name with low confidence.
+
+Return a JSON array, one object per channel in the same order, with fields:
+- channel_index (1-based), domain, company_name, source_type (OWNED/COMPETITOR/INFLUENCER/MEDIA/EDUCATIONAL/AGENCY/OTHER), confidence (0-1).
+
+Channels:
 {chr(10).join(channels_context)}
-
-For each channel, identify:
-1. The primary company domain (e.g., company.com)
-2. The company name
-3. Source type (OWNED, COMPETITOR, INFLUENCER, MEDIA, EDUCATIONAL, AGENCY, OTHER)
-4. Confidence score (0-1)
-
-Return a JSON array with one object per channel in the same order.
-Each object should have: channel_index (1-based), domain, company_name, source_type, confidence.
-If no domain is found, use empty string for domain and company_name.
 """
             
-            response = client.chat.completions.create(
-                model="gpt-5-nano-2025-08-07",  # Fast model for batch processing
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at identifying company ownership of YouTube channels. Extract domains accurately and efficiently."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                response_format={"type": "json_object"},
-                max_completion_tokens=1000
+            # Run blocking OpenAI client call off the event loop with a timeout
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    lambda: client.responses.create(
+                        model=getattr(self.settings, 'video_enricher_ai_model', "gpt-4.1-nano-2025-04-14"),
+                        input=[
+                            {"role": "system", "content": "You are an expert at identifying company ownership of YouTube channels. Extract domains accurately and efficiently. Always return strict JSON as requested."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_completion_tokens=getattr(self.settings, 'video_enricher_ai_max_tokens', 1200)
+                    )
+                ),
+                timeout=getattr(self.settings, 'video_enricher_ai_timeout_s', 30)
             )
             
             # Parse response
-            content = response.choices[0].message.content
-            batch_results = json.loads(content)
+            content = ""
+            try:
+                # Prefer output_text from Responses API
+                content = getattr(response, 'output_text', "")
+                if not content:
+                    logger.error("Video enricher: empty response content from OpenAI")
+                    return {}
+                try:
+                    batch_results = json.loads(content)
+                except Exception:
+                    # Try to salvage JSON array/object if present in content
+                    start_idx = content.find('[')
+                    end_idx = content.rfind(']')
+                    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                        batch_results = json.loads(content[start_idx:end_idx+1])
+                    else:
+                        start_idx = content.find('{')
+                        end_idx = content.rfind('}')
+                        batch_results = json.loads(content[start_idx:end_idx+1])
+            except Exception as e:
+                logger.error(f"Batch domain extraction parse error: {e}")
+                return {}
             
             # Map results back to channel IDs
             results = {}
@@ -585,10 +790,16 @@ If no domain is found, use empty string for domain and company_name.
             
             async with self._semaphore:
                 try:
-                    response = self.youtube.videos().list(
-                        part='snippet,statistics,contentDetails',
-                        id=','.join(batch_ids)
-                    ).execute()
+                    # Run blocking googleapiclient call off the event loop with a timeout
+                    response = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            lambda: self.youtube.videos().list(
+                                part='snippet,statistics,contentDetails',
+                                id=','.join(batch_ids)
+                            ).execute()
+                        ),
+                        timeout=getattr(self.settings, 'video_enricher_youtube_timeout_s', 20)
+                    )
                     
                     for item in response.get('items', []):
                         video = self._parse_video_response(item)
@@ -661,56 +872,55 @@ If no domain is found, use empty string for domain and company_name.
             return 0
     
     async def _store_video_snapshots(self, snapshots: List[VideoSnapshot]):
-        """Store video snapshots in database"""
-        for snapshot in snapshots:
+        """Store video snapshots in database (batched with retry)."""
+        if not snapshots:
+            return
+        # Prepare values list
+        values = [
+            (
+                s.snapshot_date.date(), s.client_id, s.keyword, s.position,
+                s.video_id, s.video_title, s.channel_id, s.channel_title,
+                s.published_at, s.view_count, s.like_count, s.comment_count,
+                s.subscriber_count, s.engagement_rate, s.duration_seconds,
+                s.tags, s.serp_engine, s.fetched_at, s.video_url,
+                s.channel_company_domain, s.channel_source_type
+            )
+            for s in snapshots
+        ]
+        attempts = 0
+        while attempts < 3:
+            attempts += 1
             try:
-                await self.db.execute(
-                    """
-                    INSERT INTO video_snapshots (
-                        id, snapshot_date, client_id, keyword, position,
-                        video_id, video_title, channel_id, channel_title,
-                        published_at, view_count, like_count, comment_count,
-                        subscriber_count, engagement_rate, duration_seconds,
-                        tags, serp_engine, fetched_at, video_url,
-                        channel_company_domain, channel_source_type
-                    ) VALUES (
-                        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9,
-                        $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+                async with self.db.acquire() as conn:
+                    await conn.executemany(
+                        """
+                        INSERT INTO video_snapshots (
+                            id, snapshot_date, client_id, keyword, position,
+                            video_id, video_title, channel_id, channel_title,
+                            published_at, view_count, like_count, comment_count,
+                            subscriber_count, engagement_rate, duration_seconds,
+                            tags, serp_engine, fetched_at, video_url,
+                            channel_company_domain, channel_source_type
+                        ) VALUES (
+                            gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                            $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+                        )
+                        ON CONFLICT (client_id, video_id, snapshot_date) DO UPDATE SET
+                            view_count = EXCLUDED.view_count,
+                            like_count = EXCLUDED.like_count,
+                            comment_count = EXCLUDED.comment_count,
+                            subscriber_count = EXCLUDED.subscriber_count,
+                            engagement_rate = EXCLUDED.engagement_rate,
+                            fetched_at = EXCLUDED.fetched_at,
+                            channel_company_domain = EXCLUDED.channel_company_domain,
+                            channel_source_type = EXCLUDED.channel_source_type
+                        """,
+                        values
                     )
-                    ON CONFLICT (client_id, video_id, snapshot_date) DO UPDATE SET
-                        view_count = EXCLUDED.view_count,
-                        like_count = EXCLUDED.like_count,
-                        comment_count = EXCLUDED.comment_count,
-                        subscriber_count = EXCLUDED.subscriber_count,
-                        engagement_rate = EXCLUDED.engagement_rate,
-                        fetched_at = EXCLUDED.fetched_at,
-                        channel_company_domain = EXCLUDED.channel_company_domain,
-                        channel_source_type = EXCLUDED.channel_source_type
-                    """,
-                    snapshot.snapshot_date.date(),
-                    snapshot.client_id,
-                    snapshot.keyword,
-                    snapshot.position,
-                    snapshot.video_id,
-                    snapshot.video_title,
-                    snapshot.channel_id,
-                    snapshot.channel_title,
-                    snapshot.published_at,
-                    snapshot.view_count,
-                    snapshot.like_count,
-                    snapshot.comment_count,
-                    snapshot.subscriber_count,
-                    snapshot.engagement_rate,
-                    snapshot.duration_seconds,
-                    snapshot.tags,
-                    snapshot.serp_engine,
-                    snapshot.fetched_at,
-                    snapshot.video_url,
-                    snapshot.channel_company_domain,
-                    snapshot.channel_source_type
-                )
+                return
             except Exception as e:
-                logger.error(f"Error storing video snapshot: {e}")
+                logger.error(f"Error storing video snapshots (attempt {attempts}): {e}")
+                await asyncio.sleep(0.5 * attempts)
     
     # Additional utility methods from original implementation
     async def calculate_video_metrics(self, client_id: str, days: int = 30) -> VideoMetrics:

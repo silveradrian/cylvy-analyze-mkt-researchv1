@@ -83,21 +83,53 @@ class SimplifiedGoogleAdsService:
             return {country: [] for country in countries}
         
         results = {}
-        
-        for country in countries:
+
+        # Configurable batching and concurrency
+        try:
+            batch_size = int(getattr(settings, 'GOOGLE_ADS_BATCH_SIZE', 1000))
+        except Exception:
+            batch_size = 1000
+        try:
+            max_in_flight = int(getattr(settings, 'GOOGLE_ADS_CONCURRENCY', 4))
+        except Exception:
+            max_in_flight = 4
+
+        async def process_country(country: str) -> None:
             try:
-                logger.info(f"🚀 Fetching keywords for {country}: {keywords}")
-                metrics = await self._get_keyword_ideas(keywords, country)
-                results[country] = metrics
-                logger.info(f"✅ Got {len(metrics)} metrics for {country}")
-                
-                # Store in database
-                if metrics:
-                    await self._store_metrics(metrics, country, pipeline_execution_id)
-                    
+                # Chunk keywords to recommended batch size to avoid rate limiting
+                keyword_batches = [keywords[i:i+batch_size] for i in range(0, len(keywords), batch_size)]
+                logger.info(f"🚀 {country}: {len(keywords)} keywords in {len(keyword_batches)} batches (size={batch_size})")
+
+                semaphore = asyncio.Semaphore(max(1, max_in_flight))
+
+                async def process_batch(batch_keywords: List[str], idx: int) -> List[KeywordMetric]:
+                    async with semaphore:
+                        logger.info(f"🔗 {country}: calling Google Ads for batch {idx+1}/{len(keyword_batches)} with {len(batch_keywords)} keywords")
+                        batch_metrics = await self._get_keyword_ideas(batch_keywords, country)
+                        # Store per batch to persist progressively
+                        if batch_metrics:
+                            await self._store_metrics(batch_metrics, country, pipeline_execution_id)
+                        return batch_metrics
+
+                tasks = [process_batch(bk, i) for i, bk in enumerate(keyword_batches)]
+                batches = await asyncio.gather(*tasks, return_exceptions=True)
+
+                country_metrics: List[KeywordMetric] = []
+                for i, bm in enumerate(batches):
+                    if isinstance(bm, Exception):
+                        logger.error(f"❌ {country}: batch {i+1} failed: {bm}")
+                        continue
+                    country_metrics.extend(bm)
+
+                results[country] = country_metrics
+                logger.info(f"✅ {country}: total {len(country_metrics)} metrics across {len(keyword_batches)} batches")
             except Exception as e:
                 logger.error(f"❌ Failed for {country}: {e}")
                 results[country] = []
+
+        # Process countries sequentially to respect per-account limits; adjust if needed
+        for country in countries:
+            await process_country(country)
         
         return results
     

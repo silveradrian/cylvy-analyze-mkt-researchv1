@@ -13,7 +13,8 @@ import {
   Globe,
   Calendar,
   Rocket,
-  Users
+  Users,
+  Settings
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -71,7 +72,7 @@ export function SetupChecklist() {
       title: 'Buyer Personas',
       description: 'Define your target buyer personas',
       icon: Users,
-      route: '/setup/personas',
+      route: '/setup?step=personas',
       checkFunction: async () => {
         try {
           const token = localStorage.getItem('access_token')
@@ -134,6 +135,18 @@ export function SetupChecklist() {
       isOptional: true
     },
     {
+      id: 'default-dimensions',
+      title: 'Default Dimensions',
+      description: 'Configure JTBD Phases & Page Types',
+      icon: Settings,
+      route: '/settings',
+      checkFunction: async () => {
+        // Default dimensions are pre-populated, so always return true
+        return true
+      },
+      isOptional: true
+    },
+    {
       id: 'landscapes',
       title: 'Digital Landscapes',
       description: 'Define keyword groupings',
@@ -153,18 +166,6 @@ export function SetupChecklist() {
           return false
         }
         return false
-      },
-      isOptional: true
-    },
-    {
-      id: 'jtbd',
-      title: 'JTBD Phases',
-      description: 'Customize Gartner buying journey phases',
-      icon: Target,
-      route: '/settings#jtbd',
-      checkFunction: async () => {
-        // JTBD phases are pre-populated, so always return true
-        return true
       },
       isOptional: true
     },

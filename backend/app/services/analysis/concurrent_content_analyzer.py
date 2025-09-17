@@ -183,16 +183,11 @@ class ConcurrentContentAnalyzer:
             if not enrichment_complete:
                 logger.info("Company enrichment not complete, but proceeding with content analysis for already enriched pages")
             
-            # Build the query with proper parameterization
-            params = [self.pipeline_id]
-            param_count = 2
-            
-            # Add URL filter if needed
+            # Build URL filter for already processed items (unless doing fresh analysis)
             url_filter = ""
             if self._processed_urls and not self._fresh_analysis:
-                url_filter = f"AND sc.url != ALL(${param_count}::text[])"
-                params.append(list(self._processed_urls))
-                param_count += 1
+                # Use parameterized query to avoid SQL injection/syntax errors
+                url_filter = f"AND sc.url NOT IN (SELECT unnest($2::text[]))"
             
             # Content analysis matches pipeline service approach - process all scraped content
             # Get company data based on domain extracted from URL when available
@@ -224,7 +219,13 @@ class ConcurrentContentAnalyzer:
                 {f"OFFSET {self._fresh_analysis_offset}" if self._fresh_analysis else ""}
             """
 
-            results = await conn.fetch(query, *params)
+            # Execute query with proper parameters
+            if url_filter:
+                # When url_filter is present, we have 2 parameters
+                results = await conn.fetch(query, self.pipeline_id, list(self._processed_urls))
+            else:
+                # When no url_filter, only pipeline_id parameter
+                results = await conn.fetch(query, self.pipeline_id)
             return [dict(row) for row in results]
     
     def _get_analysis_filter(self) -> str:

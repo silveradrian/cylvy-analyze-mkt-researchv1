@@ -53,13 +53,27 @@ class StateTracker:
             Number of states created
         """
         states_created = 0
-        
+
         async with self.db_pool.acquire() as conn:
-            # Prepare state records
+            # Load existing (phase, item_identifier) pairs to ensure idempotency without relying on DB constraints
+            existing_pairs_rows = await conn.fetch(
+                """
+                SELECT phase, item_identifier
+                FROM pipeline_state
+                WHERE pipeline_execution_id = $1
+                """,
+                pipeline_execution_id
+            )
+            existing_pairs = {(r['phase'], r['item_identifier']) for r in existing_pairs_rows}
+
+            # Prepare deduplicated state records
             records = []
             for phase in phases:
                 for item in items:
                     item_id = self._generate_item_identifier(phase, item)
+                    key = (phase, item_id)
+                    if key in existing_pairs:
+                        continue
                     records.append((
                         pipeline_execution_id,
                         phase,
@@ -68,8 +82,8 @@ class StateTracker:
                         StateStatus.PENDING,
                         json.dumps(item.get('metadata', {}))
                     ))
-            
-            # Bulk insert
+
+            # Bulk insert only new records
             if records:
                 await conn.copy_records_to_table(
                     'pipeline_state',

@@ -17,6 +17,7 @@ class CompanyEnrichmentRequest(BaseModel):
 class CompanyProfile(BaseModel):
     """Complete company profile with enriched data"""
     # Basic Information
+    id: Optional[str] = Field(None, description="Company ID from enrichment source")
     domain: str = Field(..., description="Primary domain")
     company_name: str = Field(..., description="Company name")
     website: Optional[str] = Field(None, description="Company website URL")
@@ -31,7 +32,7 @@ class CompanyProfile(BaseModel):
     # Financial Information
     revenue_amount: Optional[float] = Field(None, description="Annual revenue amount")
     revenue_range: Optional[str] = Field(None, description="Revenue range description")
-    revenue_currency: str = Field("USD", description="Revenue currency")
+    revenue_currency: Optional[str] = Field("USD", description="Revenue currency")
     
     # Company Size
     headcount: Optional[int] = Field(None, description="Number of employees")
@@ -56,8 +57,9 @@ class CompanyProfile(BaseModel):
     # Metadata
     last_confirmed: Optional[str] = Field(None, description="Last data confirmation date")
     confidence_score: Optional[float] = Field(None, ge=0, le=1, description="Data confidence score")
-    source: str = Field("cognism", description="Data source")
-    enriched_at: datetime = Field(default_factory=datetime.utcnow)
+    source: Optional[str] = Field("cognism", description="Data source")
+    enriched_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata including parent company relationships")
     
     @field_validator('domain')
     @classmethod

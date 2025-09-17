@@ -2,6 +2,15 @@
 const nextConfig = {
   output: 'standalone',
 
+  // Experimental features for CSS handling
+  experimental: {
+    appDir: true,
+    serverComponentsExternalPackages: [],
+  },
+
+  // Force CSS optimization
+  optimizeFonts: true,
+  
   images: {
     domains: ['localhost'],
     remotePatterns: [

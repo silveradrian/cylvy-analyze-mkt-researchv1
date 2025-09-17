@@ -50,9 +50,9 @@ class ProductionLandscapeCalculator:
             
             logger.info(f"Calculating DSI for landscape '{landscape['name']}' with {len(landscape_keywords)} keywords")
             
-            # Calculate DSI metrics using filtered SERP data
+            # Calculate DSI metrics using filtered SERP data (organic only for now)
             company_metrics = await self._calculate_landscape_specific_dsi(
-                client_id, landscape_keywords, landscape_id
+                client_id, landscape_keywords, landscape_id, 'organic'
             )
             
             # Store detailed metrics
@@ -86,14 +86,15 @@ class ProductionLandscapeCalculator:
         self, 
         client_id: str, 
         keyword_ids: List[str], 
-        landscape_id: str
+        landscape_id: str,
+        search_type: str = 'organic'
     ) -> List[CompanyDSIMetrics]:
-        """Calculate DSI using only landscape-specific SERP results"""
+        """Calculate DSI using only landscape-specific SERP results for specified search type"""
         
         calculation_date = datetime.now().date()
         period_start = calculation_date - timedelta(days=30)
         
-        # Get SERP results filtered by landscape keywords
+        # CORRECTED: Get SERP results with proper traffic calculation and domain mapping
         async with self.db.acquire() as conn:
             company_query = """
                 WITH landscape_serp AS (
@@ -102,61 +103,97 @@ class ProductionLandscapeCalculator:
                         s.keyword_id,
                         s.url,
                         s.position,
-                        s.estimated_traffic,
                         k.keyword,
-                        k.avg_monthly_searches as search_volume
+                        k.avg_monthly_searches,
+                        -- REALISTIC TRAFFIC ESTIMATION: Search Volume × Industry-Standard CTR
+                        COALESCE(k.avg_monthly_searches, 1000) * CASE 
+                            WHEN s.position = 1 THEN 0.2823  -- 28.23%
+                            WHEN s.position = 2 THEN 0.1572  -- 15.72%
+                            WHEN s.position = 3 THEN 0.1073  -- 10.73%
+                            WHEN s.position = 4 THEN 0.0775  -- 7.75%
+                            WHEN s.position = 5 THEN 0.0588  -- 5.88%
+                            WHEN s.position = 6 THEN 0.0459  -- 4.59%
+                            WHEN s.position = 7 THEN 0.0369  -- 3.69%
+                            WHEN s.position = 8 THEN 0.0302  -- 3.02%
+                            WHEN s.position = 9 THEN 0.0252  -- 2.52%
+                            WHEN s.position = 10 THEN 0.0214 -- 2.14%
+                            WHEN s.position <= 20 THEN 0.0150 -- 1.5%
+                            ELSE 0.0050 -- 0.5%
+                        END as estimated_traffic
                     FROM serp_results s
                     JOIN keywords k ON s.keyword_id = k.id
                     WHERE s.keyword_id = ANY($1::uuid[])
                         AND s.search_date >= $2
                         AND s.search_date <= $3
-                        AND s.result_type = 'organic'
+                        AND s.serp_type = $4
+                        AND s.position <= 20  -- Top 20 only
                 ),
                 company_aggregates AS (
                     SELECT 
-                        ls.domain,
-                        c.company_name,
-                        c.id as company_id,
+                        -- ROBUST: Use domain_company_mapping for consistent company identification
+                        dcm.company_id,
+                        dcm.display_name as company_name,
+                        dcm.enrichment_source,
+                        dcm.confidence_score,
+                        MIN(ls.domain) as primary_domain,
+                        COUNT(DISTINCT ls.domain) as domain_count,
                         COUNT(DISTINCT ls.keyword_id) as total_keywords,
                         COUNT(DISTINCT ls.url) as total_pages,
                         SUM(ls.estimated_traffic) as total_traffic,
-                        AVG(CASE WHEN ls.position <= 10 THEN 1.0 ELSE 0.0 END) as avg_serp_visibility,
-                        AVG(ca.jtbd_alignment_score) as avg_relevance,
+                        AVG(ls.position) as avg_position,
+                        -- CORRECTED: Personal Relevance from actual persona scores
+                        COALESCE(
+                            (SELECT AVG(CAST(oda.score AS FLOAT))
+                             FROM optimized_content_analysis oca
+                             JOIN optimized_dimension_analysis oda ON oca.id = oda.analysis_id
+                             JOIN scraped_content sc ON oca.url = sc.url
+                             WHERE sc.domain = ANY(
+                                 SELECT original_domain FROM domain_company_mapping 
+                                 WHERE company_id = dcm.company_id
+                             )
+                             AND oda.dimension_type = 'persona'
+                            ), 5.0  -- Default persona score (1-10 scale)
+                        ) as personal_relevance,
                         AVG(CASE 
-                            WHEN ca.content_classification = 'BUY' THEN 1.0
-                            WHEN ca.content_classification = 'CONVERT/TRY' THEN 0.8
-                            WHEN ca.content_classification = 'LEARN' THEN 0.6
-                            WHEN ca.content_classification = 'ATTRACT' THEN 0.4
-                            ELSE 0.2
+                            WHEN ca.overall_sentiment = 'positive' THEN 1.0
+                            WHEN ca.overall_sentiment = 'neutral' THEN 0.7
+                            WHEN ca.overall_sentiment = 'negative' THEN 0.3
+                            WHEN ca.id IS NOT NULL THEN 0.6
+                            ELSE 0.4
                         END) as avg_funnel_value
                     FROM landscape_serp ls
-                    JOIN company_profiles c ON ls.domain = c.domain
-                    LEFT JOIN content_analysis ca ON ls.url = ca.url
-                    GROUP BY ls.domain, c.company_name, c.id
+                    -- ROBUST: Use domain_company_mapping for all domain variations
+                    INNER JOIN domain_company_mapping dcm ON ls.domain = dcm.original_domain
+                    LEFT JOIN optimized_content_analysis ca ON ls.url = ca.url
+                    GROUP BY 
+                        dcm.company_id,
+                        dcm.display_name,
+                        dcm.enrichment_source,
+                        dcm.confidence_score
                 ),
                 market_totals AS (
                     SELECT 
-                        COUNT(DISTINCT ls.keyword_id) as market_keywords,
+                        (SELECT COUNT(*) FROM landscape_keywords WHERE landscape_id = $5) as market_keywords,
                         SUM(ca.total_traffic) as market_traffic,
                         COUNT(DISTINCT ca.company_id) as total_companies
-                    FROM landscape_serp ls
-                    JOIN company_aggregates ca ON ls.domain = ca.domain
+                    FROM company_aggregates ca
                 )
                 SELECT 
                     ca.*,
-                    ca.total_keywords::float / NULLIF(mt.market_keywords, 0) as keyword_coverage,
-                    ca.total_traffic / NULLIF(mt.market_traffic, 0) as traffic_share,
-                    -- Calculate landscape-specific DSI score
-                    ROUND(
-                        ((ca.total_keywords::float / NULLIF(mt.market_keywords, 0)) * 
-                        (ca.total_traffic / NULLIF(mt.market_traffic, 0)) * 
-                        COALESCE(ca.avg_relevance, 0.5) *
-                        COALESCE(ca.avg_funnel_value, 0.5) * 100)::numeric, 
-                        2
-                    ) as dsi_score,
+                    -- USER'S DSI FORMULA COMPONENTS
+                    (ca.total_keywords::float / NULLIF(mt.market_keywords, 0)) * 100 as keyword_coverage_pct,
+                    (ca.total_traffic / NULLIF(mt.market_traffic, 0)) * 100 as traffic_share_pct,
+                    (ca.personal_relevance / 10.0) as personal_relevance_score,
+                    -- USER'S DSI FORMULA: Keyword Coverage × Share of Traffic × Personal Relevance
+                    (
+                        (ca.total_keywords::float / NULLIF(mt.market_keywords, 0)) * 100 *
+                        (ca.total_traffic / NULLIF(mt.market_traffic, 0)) * 100 *
+                        (ca.personal_relevance / 10.0)
+                    )::numeric(10,2) as dsi_score,
                     mt.total_companies
                 FROM company_aggregates ca
                 CROSS JOIN market_totals mt
+                WHERE ca.total_keywords >= 3  -- Minimum keywords for inclusion
                 ORDER BY dsi_score DESC NULLS LAST
             """
             
@@ -164,35 +201,37 @@ class ProductionLandscapeCalculator:
                 company_query, 
                 keyword_ids, 
                 period_start, 
-                calculation_date
+                calculation_date,
+                search_type,
+                landscape_id  # Add landscape_id as $5
             )
             
             company_metrics = []
             for idx, row in enumerate(results):
-                if row['dsi_score'] is None:
-                    continue
-                    
-                # Determine market position based on DSI score
+                # Use company_id from domain_company_mapping (always present)
+                company_id = row['company_id']
+                
+                # Don't skip companies with NULL DSI scores, assign them 0
                 dsi_score = float(row['dsi_score'] or 0)
                 if dsi_score >= 30:
-                    market_position = "LEADER"
+                    market_position = "leader"
                 elif dsi_score >= 15:
-                    market_position = "CHALLENGER"
+                    market_position = "challenger"
                 elif dsi_score >= 5:
-                    market_position = "COMPETITOR"
+                    market_position = "competitor"
                 else:
-                    market_position = "NICHE"
+                    market_position = "niche"
                 
                 company_metric = CompanyDSIMetrics(
-                    company_id=row['company_id'],
-                    domain=row['domain'],
+                    company_id=company_id,
+                    domain=row['primary_domain'],
                     company_name=row['company_name'],
                     total_keywords=row['total_keywords'],
                     total_pages=row['total_pages'],
-                    keyword_coverage=float(row['keyword_coverage'] or 0),
+                    keyword_coverage=float(row['keyword_coverage_pct'] or 0),
                     total_traffic=float(row['total_traffic'] or 0),
-                    traffic_share=float(row['traffic_share'] or 0),
-                    avg_relevance=float(row['avg_relevance'] or 0),
+                    traffic_share=float(row['traffic_share_pct'] or 0),
+                    avg_relevance=float(row['personal_relevance_score'] or 0),
                     avg_funnel_value=float(row['avg_funnel_value'] or 0),
                     dsi_score=dsi_score,
                     market_position=market_position,

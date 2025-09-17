@@ -188,13 +188,13 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    const configData = {
+
+      const configData = {
       custom_dimensions: dimensions,
       dimension_groups: dimensionGroups
-    }
+      }
 
-    onComplete(configData)
+      onComplete(configData)
   }
 
   return (
@@ -215,12 +215,12 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
             <TabsTrigger value="dimensions">
             <Layers className="h-4 w-4 mr-2" />
             Custom Dimensions
-          </TabsTrigger>
+            </TabsTrigger>
           <TabsTrigger value="groups">
             <Target className="h-4 w-4 mr-2" />
             Dimension Groups
-          </TabsTrigger>
-        </TabsList>
+            </TabsTrigger>
+          </TabsList>
 
         {/* Custom Dimensions Tab */}
         <TabsContent value="dimensions" className="space-y-4">
@@ -252,7 +252,7 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
                           <Badge variant="outline" className="text-xs">
                             3 scoring levels
                           </Badge>
-                        </div>
+            </div>
                       </div>
                     ))}
                   </div>
@@ -288,7 +288,7 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
                     {dimensions.map((dimension, index) => (
                       <div key={index} className="p-4 border rounded-lg">
                         <div className="flex items-start justify-between">
-                          <div>
+                      <div>
                             <div className="flex items-center gap-2">
                               <h4 className="font-medium">{dimension.name}</h4>
                               {dimension.group_id && (
@@ -304,20 +304,20 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
                                   <span className="font-medium">Level {level.level}:</span> {level.label}
                                 </div>
                               ))}
-                            </div>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeDimension(dimension.name)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
                       </div>
-                    ))}
+                    </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                            onClick={() => removeDimension(dimension.name)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
                   </div>
+                </div>
+              ))}
+            </div>
                   <Button
                     type="button"
                     variant="outline"
@@ -336,33 +336,33 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
                       setShowDimensionForm(true)
                     }}
                   >
-                    <Plus className="h-4 w-4 mr-2" />
+                <Plus className="h-4 w-4 mr-2" />
                     Add Another Dimension
-                  </Button>
-                </div>
+              </Button>
+            </div>
               )}
 
               {/* Dimension Form */}
               {showDimensionForm && editingDimension && (
                 <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
-                  <div>
+                      <div>
                     <Label htmlFor="dimension-name">Dimension Name</Label>
-                    <Input
+                        <Input
                       id="dimension-name"
                       value={editingDimension.name}
                       onChange={(e) => setEditingDimension({ ...editingDimension, name: e.target.value })}
                       placeholder="e.g., API Ecosystem Maturity"
-                    />
-                  </div>
-                  <div>
+                        />
+                      </div>
+                      <div>
                     <Label htmlFor="dimension-desc">Description</Label>
-                    <Textarea
+                        <Textarea
                       id="dimension-desc"
                       value={editingDimension.description}
                       onChange={(e) => setEditingDimension({ ...editingDimension, description: e.target.value })}
                       placeholder="What this dimension measures..."
-                    />
-                  </div>
+                        />
+                      </div>
                   <div>
                     <Label htmlFor="dimension-group">Dimension Group</Label>
                     <select
@@ -393,10 +393,10 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
                       placeholder="API documentation&#10;Integration examples&#10;Developer portal"
                       rows={3}
                     />
-                  </div>
+                    </div>
                   <div className="flex justify-end gap-3">
-                    <Button
-                      type="button"
+                      <Button
+                        type="button"
                       variant="outline"
                       onClick={() => {
                         setEditingDimension(null)
@@ -407,7 +407,7 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
                     </Button>
                     <Button type="button" onClick={saveDimension}>
                       Save Dimension
-                    </Button>
+                      </Button>
                   </div>
                 </div>
               )}
@@ -426,10 +426,10 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
                     </ul>
                   </div>
                 </div>
-              </div>
+            </div>
             </CardContent>
           </Card>
-        </TabsContent>
+          </TabsContent>
 
         {/* Dimension Groups Tab */}
         <TabsContent value="groups" className="space-y-4">
@@ -520,14 +520,14 @@ export default function AnalysisConfigStep({ data, onComplete, onBack }: Analysi
       </Card>
 
       {/* Navigation */}
-      <div className="flex justify-between pt-6">
+        <div className="flex justify-between pt-6">
         <Button type="button" onClick={onBack} variant="outline">
           Previous
-        </Button>
+            </Button>
         <Button type="submit">
           Next: Review & Launch
-        </Button>
-      </div>
-    </form>
+          </Button>
+        </div>
+      </form>
   )
 }

@@ -100,6 +100,7 @@ async def delete_keyword(
 async def upload_keywords(
     file: UploadFile = File(...),
     regions: str = Query("US,UK", description="Comma-separated list of regions"),
+    replace: bool = Query(False, description="If true, replace existing keywords with uploaded list"),
     current_user: User = Depends(require_admin),
     keywords_svc: KeywordsService = Depends(get_keywords_service)
 ):
@@ -112,7 +113,7 @@ async def upload_keywords(
     region_list = [r.strip() for r in regions.split(',')]
     
     try:
-        result = await keywords_svc.upload_keywords_from_csv(file, region_list)
+        result = await keywords_svc.upload_keywords_from_csv(file, region_list, replace=replace)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")

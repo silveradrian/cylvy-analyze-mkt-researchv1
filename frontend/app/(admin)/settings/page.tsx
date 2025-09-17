@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { 
   Plus, 
   Edit, 
@@ -29,17 +30,19 @@ interface JTBDPhase {
   order_index: number
 }
 
-interface SourceType {
-  id?: string
+
+interface PageType {
+  id: string
   name: string
+  category: string
   description: string
-  priority: number
-  analysis_weight: number
+  indicators: string[]
+  buyer_journey_stage: string
 }
 
-export default function AdvancedSettingsPage() {
+export default function DefaultDimensionsPage() {
   const [jtbdPhases, setJtbdPhases] = useState<JTBDPhase[]>([])
-  const [sourceTypes, setSourceTypes] = useState<SourceType[]>([])
+  const [pageTypes, setPageTypes] = useState<PageType[]>([])
   const [loading, setLoading] = useState(true)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [error, setError] = useState<string>('')
@@ -54,16 +57,89 @@ export default function AdvancedSettingsPage() {
     { phase: 'Negotiation & Purchase', description: 'Final negotiations, contracting, and purchase decision', order_index: 6 }
   ]
 
-  // Default source types template  
-  const defaultSourceTypes: SourceType[] = [
-    { name: 'Company Website', description: 'Official company website pages', priority: 1, analysis_weight: 1.0 },
-    { name: 'Product Pages', description: 'Dedicated product and solution pages', priority: 2, analysis_weight: 0.9 },
-    { name: 'Blog Content', description: 'Blog posts and thought leadership articles', priority: 3, analysis_weight: 0.7 },
-    { name: 'Case Studies', description: 'Customer success stories and case studies', priority: 4, analysis_weight: 0.8 },
-    { name: 'White Papers', description: 'Technical documents and research papers', priority: 5, analysis_weight: 0.8 },
-    { name: 'Press Releases', description: 'Official company announcements', priority: 6, analysis_weight: 0.6 },
-    { name: 'Social Media', description: 'Social media posts and content', priority: 7, analysis_weight: 0.5 },
-    { name: 'Video Content', description: 'YouTube and other video platforms', priority: 8, analysis_weight: 0.6 }
+
+  // Default B2B page types
+  const defaultPageTypes: PageType[] = [
+    {
+      id: 'homepage',
+      name: 'Homepage',
+      category: 'Core Website Pages',
+      description: 'Main landing page with hero sections and value propositions',
+      indicators: ['hero section', 'value proposition', 'main navigation', 'company overview'],
+      buyer_journey_stage: 'awareness'
+    },
+    {
+      id: 'product_landing',
+      name: 'Product/Solution Landing',
+      category: 'Product & Solution Pages',
+      description: 'Main product or solution overview pages',
+      indicators: ['product features', 'benefits list', 'pricing tiers', 'demo CTA'],
+      buyer_journey_stage: 'consideration'
+    },
+    {
+      id: 'feature_page',
+      name: 'Feature/Capability Page',
+      category: 'Product & Solution Pages',
+      description: 'Detailed pages about specific features or capabilities',
+      indicators: ['feature details', 'use cases', 'technical specs', 'integration info'],
+      buyer_journey_stage: 'evaluation'
+    },
+    {
+      id: 'pricing',
+      name: 'Pricing Page',
+      category: 'Conversion Pages',
+      description: 'Pricing tiers, plans, and purchasing options',
+      indicators: ['pricing tables', 'plan comparison', 'calculator', 'contact sales'],
+      buyer_journey_stage: 'decision'
+    },
+    {
+      id: 'case_study',
+      name: 'Case Study',
+      category: 'Trust & Proof Content',
+      description: 'Customer success stories and implementation examples',
+      indicators: ['customer quotes', 'results metrics', 'challenge-solution', 'ROI data'],
+      buyer_journey_stage: 'validation'
+    },
+    {
+      id: 'blog_post',
+      name: 'Blog Post',
+      category: 'Educational Content',
+      description: 'Thought leadership and educational articles',
+      indicators: ['publish date', 'author bio', 'related posts', 'comments section'],
+      buyer_journey_stage: 'awareness'
+    },
+    {
+      id: 'resource_hub',
+      name: 'Resource Hub/Library',
+      category: 'Content Hubs',
+      description: 'Central repository for downloadable content',
+      indicators: ['content filters', 'download gates', 'resource cards', 'search functionality'],
+      buyer_journey_stage: 'research'
+    },
+    {
+      id: 'comparison',
+      name: 'Comparison/Vs Page',
+      category: 'Competitive Content',
+      description: 'Direct comparisons with competitors or alternatives',
+      indicators: ['comparison table', 'differentiators', 'switching guide', 'competitor names'],
+      buyer_journey_stage: 'evaluation'
+    },
+    {
+      id: 'landing_page',
+      name: 'Campaign Landing Page',
+      category: 'Conversion Pages',
+      description: 'Focused pages for specific campaigns or offers',
+      indicators: ['single offer', 'form above fold', 'limited navigation', 'urgency elements'],
+      buyer_journey_stage: 'conversion'
+    },
+    {
+      id: 'demo_request',
+      name: 'Demo/Trial Request',
+      category: 'Conversion Pages',
+      description: 'Pages focused on demo or trial sign-ups',
+      indicators: ['demo form', 'calendar booking', 'trial benefits', 'qualification questions'],
+      buyer_journey_stage: 'decision'
+    }
   ]
 
   useEffect(() => {
@@ -87,27 +163,27 @@ export default function AdvancedSettingsPage() {
         setJtbdPhases(gartnerJTBDPhases)
       }
 
-      // Load source types (if endpoint exists)
+
+      // Load page types from analysis config
       try {
-        const sourceResponse = await fetch('/api/v1/analysis/source-types', {
+        const configResponse = await fetch('/api/v1/analysis/config', {
           headers: { 'Authorization': `Bearer ${token}` }
         })
         
-        if (sourceResponse.ok) {
-          const sourceData = await sourceResponse.json()
-          setSourceTypes(sourceData.source_types || defaultSourceTypes)
+        if (configResponse.ok) {
+          const configData = await configResponse.json()
+          setPageTypes(configData.page_types || defaultPageTypes)
         } else {
-          setSourceTypes(defaultSourceTypes)
+          setPageTypes(defaultPageTypes)
         }
       } catch (e) {
-        // Source types endpoint might not exist yet
-        setSourceTypes(defaultSourceTypes)
+        setPageTypes(defaultPageTypes)
       }
 
     } catch (error) {
       console.error('Failed to load settings:', error)
       setJtbdPhases(gartnerJTBDPhases)
-      setSourceTypes(defaultSourceTypes)
+      setPageTypes(defaultPageTypes)
     } finally {
       setLoading(false)
     }
@@ -139,34 +215,6 @@ export default function AdvancedSettingsPage() {
     }
   }
 
-  const saveSourceTypes = async () => {
-    try {
-      setSaveStatus('saving')
-      const token = localStorage.getItem('access_token')
-      
-      // Note: This endpoint might need to be created in the backend
-      const response = await fetch('/api/v1/analysis/source-types', {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ source_types: sourceTypes })
-      })
-
-      if (response.ok) {
-        setSaveStatus('saved')
-        setTimeout(() => setSaveStatus('idle'), 2000)
-      } else {
-        // Silently handle if endpoint doesn't exist yet
-        setSaveStatus('saved')
-        setTimeout(() => setSaveStatus('idle'), 2000)
-      }
-    } catch (error) {
-      setSaveStatus('saved') // Don't show error for now
-      setTimeout(() => setSaveStatus('idle'), 2000)
-    }
-  }
 
   const addJTBDPhase = () => {
     const newPhase: JTBDPhase = {
@@ -188,34 +236,39 @@ export default function AdvancedSettingsPage() {
     setJtbdPhases(jtbdPhases.filter((_, i) => i !== index))
   }
 
-  const addSourceType = () => {
-    const newSourceType: SourceType = {
-      name: '',
-      description: '',
-      priority: Math.max(...sourceTypes.map(s => s.priority), 0) + 1,
-      analysis_weight: 0.8
-    }
-    setSourceTypes([...sourceTypes, newSourceType])
-  }
 
-  const updateSourceType = (index: number, field: keyof SourceType, value: string | number) => {
-    const updated = sourceTypes.map((sourceType, i) => 
-      i === index ? { ...sourceType, [field]: value } : sourceType
-    )
-    setSourceTypes(updated)
-  }
+  const savePageTypes = async () => {
+    try {
+      setSaveStatus('saving')
+      setError('')
+      const token = localStorage.getItem('access_token')
+      
+      // Save page types as part of the analysis config
+      const response = await fetch('/api/v1/analysis/config', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ page_types: pageTypes })
+      })
 
-  const removeSourceType = (index: number) => {
-    setSourceTypes(sourceTypes.filter((_, i) => i !== index))
-  }
-
-  const resetToDefaults = (type: 'jtbd' | 'sources') => {
-    if (confirm(`Reset ${type === 'jtbd' ? 'JTBD phases' : 'source types'} to default values?`)) {
-      if (type === 'jtbd') {
-        setJtbdPhases([...gartnerJTBDPhases])
+      if (response.ok) {
+        setSaveStatus('saved')
+        setTimeout(() => setSaveStatus('idle'), 2000)
       } else {
-        setSourceTypes([...defaultSourceTypes])
+        throw new Error('Failed to save page types')
       }
+    } catch (error) {
+      console.error('Failed to save page types:', error)
+      setError('Failed to save page types. Please try again.')
+      setSaveStatus('error')
+    }
+  }
+
+  const resetToDefaults = () => {
+    if (confirm('Reset JTBD phases to default values?')) {
+      setJtbdPhases([...gartnerJTBDPhases])
     }
   }
 
@@ -233,7 +286,7 @@ export default function AdvancedSettingsPage() {
   }
 
   return (
-    <AdminLayout title="Advanced Settings" description="Configure analysis frameworks for client deployments">
+    <AdminLayout title="Default Dimensions" description="Configure JTBD phases and B2B page types">
       <div className="space-y-6">
         
         {/* Status Alert */}
@@ -269,9 +322,9 @@ export default function AdvancedSettingsPage() {
               <Target className="h-4 w-4" />
               JTBD Phases
             </TabsTrigger>
-            <TabsTrigger value="sources" className="flex items-center gap-2">
+            <TabsTrigger value="page-types" className="flex items-center gap-2">
               <Layers className="h-4 w-4" />
-              Source Types
+              B2B Page Types
             </TabsTrigger>
           </TabsList>
 
@@ -292,7 +345,7 @@ export default function AdvancedSettingsPage() {
                   <div className="flex gap-2">
                     <Button 
                       variant="outline" 
-                      onClick={() => resetToDefaults('jtbd')}
+                      onClick={() => resetToDefaults()}
                       className="text-gray-600"
                     >
                       <RotateCcw className="h-4 w-4 mr-2" />
@@ -380,32 +433,29 @@ export default function AdvancedSettingsPage() {
             </Card>
           </TabsContent>
 
-          {/* Source Types Configuration */}
-          <TabsContent value="sources" className="space-y-4 bg-transparent text-gray-900">
+
+          {/* Page Types Configuration */}
+          <TabsContent value="page-types" className="space-y-4 bg-transparent text-gray-900">
             <Card className="cylvy-card">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="text-cylvy-midnight">Content Source Types</CardTitle>
+                    <CardTitle className="text-cylvy-midnight">B2B Page Types</CardTitle>
                     <CardDescription>
-                      Define content source categories and their analysis weights
+                      Define the primary B2B content and page types for analysis
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
                     <Button 
                       variant="outline" 
-                      onClick={() => resetToDefaults('sources')}
+                      onClick={() => setPageTypes(defaultPageTypes)}
                       className="text-gray-600"
                     >
                       <RotateCcw className="h-4 w-4 mr-2" />
                       Reset to Defaults
                     </Button>
-                    <Button onClick={addSourceType} variant="outline">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Source Type
-                    </Button>
                     <Button 
-                      onClick={saveSourceTypes} 
+                      onClick={savePageTypes} 
                       disabled={saveStatus === 'saving'}
                       className="cylvy-btn-primary"
                     >
@@ -417,94 +467,58 @@ export default function AdvancedSettingsPage() {
               </CardHeader>
               
               <CardContent>
-                <div className="space-y-4">
-                  {sourceTypes.map((sourceType, index) => (
-                    <div key={index} className="grid grid-cols-12 gap-4 items-start p-4 border rounded-lg bg-gray-50/50">
-                      <div className="col-span-1">
-                        <Label className="text-xs">Priority</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          value={sourceType.priority}
-                          onChange={(e) => updateSourceType(index, 'priority', parseInt(e.target.value) || 1)}
-                          className="bg-white text-gray-900 text-sm"
-                        />
-                      </div>
-                      
-                      <div className="col-span-3">
-                        <Label className="text-xs">Source Type Name</Label>
-                        <Input
-                          value={sourceType.name}
-                          onChange={(e) => updateSourceType(index, 'name', e.target.value)}
-                          placeholder="e.g., Company Website"
-                          className="bg-white text-gray-900 placeholder:text-gray-500"
-                        />
-                      </div>
-                      
-                      <div className="col-span-5">
-                        <Label className="text-xs">Description</Label>
-                        <Textarea
-                          value={sourceType.description}
-                          onChange={(e) => updateSourceType(index, 'description', e.target.value)}
-                          placeholder="Describe what content falls under this source type..."
-                          rows={2}
-                          className="bg-white text-gray-900 placeholder:text-gray-500"
-                        />
-                      </div>
-                      
-                      <div className="col-span-2">
-                        <Label className="text-xs">Analysis Weight</Label>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="number"
-                            min="0"
-                            max="1"
-                            step="0.1"
-                            value={sourceType.analysis_weight}
-                            onChange={(e) => updateSourceType(index, 'analysis_weight', parseFloat(e.target.value) || 0.5)}
-                            className="bg-white text-gray-900 text-sm"
-                          />
-                          <span className="text-xs text-gray-500">({(sourceType.analysis_weight * 100)}%)</span>
-                        </div>
-                      </div>
-                      
-                      <div className="col-span-1 pt-6">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeSourceType(index)}
-                          className="text-red-500 hover:text-red-700 w-full"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                <div className="space-y-6">
+                  {Object.entries(
+                    pageTypes.reduce((acc, pageType) => {
+                      if (!acc[pageType.category]) acc[pageType.category] = []
+                      acc[pageType.category].push(pageType)
+                      return acc
+                    }, {} as Record<string, PageType[]>)
+                  ).map(([category, types]) => (
+                    <div key={category} className="space-y-3">
+                      <h4 className="font-medium text-sm text-gray-700 uppercase tracking-wider">{category}</h4>
+                      <div className="space-y-3">
+                        {types.map((pageType) => (
+                          <div key={pageType.id} className="p-4 border rounded-lg bg-gray-50/50">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 space-y-2">
+                                <div>
+                                  <h5 className="font-medium text-gray-900">{pageType.name}</h5>
+                                  <p className="text-sm text-gray-600">{pageType.description}</p>
+                                </div>
+                                <div className="flex items-center gap-4 text-xs">
+                                  <span className="text-gray-500">Buyer Stage:</span>
+                                  <Badge variant="outline" className="capitalize">
+                                    {pageType.buyer_journey_stage}
+                                  </Badge>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 mb-1">Key Indicators:</p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {pageType.indicators.map((indicator, idx) => (
+                                      <Badge key={idx} variant="secondary" className="text-xs">
+                                        {indicator}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
-                  
-                  {sourceTypes.length === 0 && (
-                    <div className="text-center py-8">
-                      <Layers className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                      <h3 className="text-lg font-medium mb-2">No Source Types Configured</h3>
-                      <p className="text-gray-600 mb-4">
-                        Add content source types to categorize and weight analysis results
-                      </p>
-                      <Button onClick={addSourceType} variant="outline">
-                        Add First Source Type
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {sourceTypes.length > 0 && (
-                    <div className="bg-blue-50 p-4 rounded-lg">
-                      <h4 className="font-medium text-sm mb-2 text-blue-900">Analysis Weight Guide:</h4>
-                      <div className="text-xs text-blue-700 space-y-1">
-                        <div>• <strong>1.0</strong> - Highest priority (official company content)</div>
-                        <div>• <strong>0.8-0.9</strong> - High priority (product/solution content)</div>
-                        <div>• <strong>0.6-0.7</strong> - Medium priority (thought leadership, case studies)</div>
-                        <div>• <strong>0.3-0.5</strong> - Lower priority (social media, press releases)</div>
-                      </div>
-                    </div>
-                  )}
+                </div>
+
+                <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                  <h4 className="font-medium text-sm mb-2 text-blue-900">About Page Types</h4>
+                  <div className="text-xs text-blue-700 space-y-1">
+                    <div>• Page types help the AI identify and classify B2B content</div>
+                    <div>• Each type is aligned with specific buyer journey stages</div>
+                    <div>• Key indicators are used to recognize page patterns</div>
+                    <div>• These are used alongside JTBD phases for comprehensive analysis</div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -522,8 +536,8 @@ export default function AdvancedSettingsPage() {
               These phases will be used to categorize and analyze content based on where customers are in their buying process.
             </div>
             <div>
-              <strong className="text-cylvy-amaranth">Source Types:</strong> Categorize content sources with different analysis weights.
-              Higher weights mean the content type is considered more authoritative for scoring purposes.
+              <strong className="text-cylvy-amaranth">B2B Page Types:</strong> Identify and classify different types of B2B content.
+              The AI uses these definitions to understand page structure and purpose, aligned with buyer journey stages.
             </div>
             <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded">
               <strong>Note:</strong> These settings apply globally to all analysis runs. 

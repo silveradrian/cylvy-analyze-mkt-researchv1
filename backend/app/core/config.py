@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
-    DB_POOL_SIZE: int = Field(20, env="DB_POOL_SIZE")
-    DB_MAX_OVERFLOW: int = Field(40, env="DB_MAX_OVERFLOW")
+    DB_POOL_SIZE: int = Field(100, env="DB_POOL_SIZE")  # Increased for high concurrency
+    DB_MAX_OVERFLOW: int = Field(100, env="DB_MAX_OVERFLOW")  # Increased for content analysis
     
     # Redis
     REDIS_URL: str = Field("redis://localhost:6379", env="REDIS_URL")
@@ -41,15 +41,33 @@ class Settings(BaseSettings):
     # Rate Limits (Default values, can be overridden per tenant)
     DEFAULT_SERP_DAILY_LIMIT: int = Field(2000, env="DEFAULT_SERP_DAILY_LIMIT")
     DEFAULT_SCRAPER_CONCURRENT_LIMIT: int = Field(50, env="DEFAULT_SCRAPER_CONCURRENT_LIMIT")
-    DEFAULT_ANALYZER_CONCURRENT_LIMIT: int = Field(30, env="DEFAULT_ANALYZER_CONCURRENT_LIMIT")
+    DEFAULT_ANALYZER_CONCURRENT_LIMIT: int = Field(50, env="DEFAULT_ANALYZER_CONCURRENT_LIMIT")  # OpenAI limits are generous (10K RPM)
+    
+    # SERP result caps and limits
+    SERP_MAX_RESULTS_PER_TYPE: int = Field(150, env="SERP_MAX_RESULTS_PER_TYPE")
+    SERP_MAX_RESULTS_TOTAL_PER_KEYWORD: int = Field(500, env="SERP_MAX_RESULTS_TOTAL_PER_KEYWORD")
+
+    # Webhook/Coordinator controls
+    WEBHOOK_STARTS_PIPELINE: bool = Field(False, env="WEBHOOK_STARTS_PIPELINE")
+    SERP_COORDINATOR_CUTOFF_MINUTES: int = Field(120, env="SERP_COORDINATOR_CUTOFF_MINUTES")
+    SERP_SCHEDULER_ENABLED: bool = Field(False, env="SERP_SCHEDULER_ENABLED")
+    SERP_SCHEDULER_POLL_INTERVAL_S: int = Field(60, env="SERP_SCHEDULER_POLL_INTERVAL_S")
     
 # External API Keys (Fallback values for development)
     # In production, these are stored encrypted per deployment
     OPENAI_API_KEY: Optional[str] = Field(None, env="OPENAI_API_KEY")
+    OPENAI_PROJECT_ID: Optional[str] = Field(None, env="OPENAI_PROJECT_ID")
     SCALE_SERP_API_KEY: Optional[str] = Field(None, env="SCALE_SERP_API_KEY")
     SCRAPINGBEE_API_KEY: Optional[str] = Field(None, env="SCRAPINGBEE_API_KEY")
     COGNISM_API_KEY: Optional[str] = Field(None, env="COGNISM_API_KEY")
+    
+    # Scraping configuration
+    scrapingbee_only: bool = Field(True, env="SCRAPINGBEE_ONLY")  # Use ScrapingBee for all scrapes
+    scrapingbee_enabled: bool = Field(True, env="SCRAPINGBEE_ENABLED")
     YOUTUBE_API_KEY: Optional[str] = Field(None, env="YOUTUBE_API_KEY")
+    # YouTube enrichment toggles
+    VIDEO_ENRICHER_ENABLE_CHANNEL_AI: bool = Field(False, env="VIDEO_ENRICHER_ENABLE_CHANNEL_AI")
+    CHANNEL_COMPANY_RESOLVER_ENABLED: bool = Field(True, env="CHANNEL_COMPANY_RESOLVER_ENABLED")
     
     # Google Ads API Configuration
     GOOGLE_ADS_DEVELOPER_TOKEN: Optional[str] = Field(None, env="GOOGLE_ADS_DEVELOPER_TOKEN")
@@ -58,6 +76,10 @@ class Settings(BaseSettings):
     GOOGLE_ADS_REFRESH_TOKEN: Optional[str] = Field(None, env="GOOGLE_ADS_REFRESH_TOKEN")
     GOOGLE_ADS_LOGIN_CUSTOMER_ID: Optional[str] = Field(None, env="GOOGLE_ADS_LOGIN_CUSTOMER_ID")
     GOOGLE_ADS_CUSTOMER_ID: Optional[str] = Field(None, env="GOOGLE_ADS_CUSTOMER_ID")
+    
+    # DataForSEO Configuration
+    DATAFORSEO_LOGIN: Optional[str] = Field(None, env="DATAFORSEO_LOGIN")
+    DATAFORSEO_PASSWORD: Optional[str] = Field(None, env="DATAFORSEO_PASSWORD")
     
     # Storage
     STORAGE_PATH: str = Field("/app/storage", env="STORAGE_PATH")

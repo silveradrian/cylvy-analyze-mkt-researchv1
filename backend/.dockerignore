@@ -1,0 +1,58 @@
+# Exclude all organized scripts and temporary files from Docker build
+scripts/
+logs/
+storage/
+tests/
+redundant/
+
+# Exclude specific non-essential files
+strategic_imperatives_reanalysis.py
+pipeline_manager.py
+setup_project_data.py
+
+# Exclude any remaining test/temp/debug files
+test_*.py
+check_*.py
+debug_*.py
+fix_*.py
+create_*.py
+*_test.py
+*_debug.py
+*_diagnostic.py
+
+# Exclude data files
+*.csv
+*.xlsx
+*.txt
+*.log
+
+# Exclude temporary files
+*.tmp
+*.temp
+*~
+.DS_Store
+
+# Exclude development files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+.pytest_cache/
+.coverage
+.tox/
+.venv/
+venv/
+
+# Exclude documentation and config examples
+*.md
+example.*
+*.ps1
+
+# Keep only essential app files and requirements.txt
+!app/
+!requirements.txt
+!Dockerfile

@@ -12,6 +12,22 @@ router = APIRouter()
 websocket_service = WebSocketService()
 
 
+@router.websocket("/ws")
+async def generic_websocket(websocket: WebSocket):
+    """Generic WebSocket endpoint - redirects to pipeline channel silently"""
+    try:
+        await websocket_service.connect(websocket, "general")
+        while True:
+            # Just keep connection alive, minimal logging
+            try:
+                data = await websocket.receive_json()
+                await websocket.send_json({"type": "connected", "channel": "general"})
+            except Exception:
+                break
+    except WebSocketDisconnect:
+        await websocket_service.disconnect(websocket)
+
+
 @router.websocket("/ws/pipeline")
 async def pipeline_websocket(websocket: WebSocket):
     """WebSocket endpoint for pipeline updates"""

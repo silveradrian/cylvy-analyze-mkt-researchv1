@@ -28,7 +28,7 @@ class AnalysisConfigService:
             
             data = dict(row)
             # Parse JSON fields
-            for field in ['personas', 'jtbd_phases', 'competitor_domains', 'custom_dimensions']:
+            for field in ['personas', 'jtbd_phases', 'page_types', 'competitor_domains', 'custom_dimensions']:
                 if data[field] and isinstance(data[field], str):
                     data[field] = json.loads(data[field])
             
@@ -49,7 +49,7 @@ class AnalysisConfigService:
                 )
             
             # Convert lists/dicts to JSON (handle Pydantic models)
-            json_fields = ['personas', 'jtbd_phases', 'competitor_domains', 'custom_dimensions']
+            json_fields = ['personas', 'jtbd_phases', 'page_types', 'competitor_domains', 'custom_dimensions']
             for field in json_fields:
                 if field in updates and not isinstance(updates[field], str):
                     # Convert Pydantic models to dicts before JSON serialization
@@ -166,23 +166,71 @@ class AnalysisConfigService:
             }
         ]
         
+        # Empty custom dimensions by default (page types are now a separate field)
+        default_custom_dimensions = {}
+        
+        # Default page types
+        default_page_types = [
+            {
+                "id": "homepage",
+                "name": "Homepage",
+                "category": "Core Website Pages",
+                "description": "Main landing page with hero sections and value propositions",
+                "indicators": ["hero section", "value proposition", "main navigation"],
+                "buyer_journey_stage": "awareness"
+            },
+            {
+                "id": "product_pages",
+                "name": "Product Pages",
+                "category": "Solution & Offering Pages",
+                "description": "Detailed product features, benefits, and specifications",
+                "indicators": ["feature lists", "pricing", "demo CTAs", "technical specs"],
+                "buyer_journey_stage": "consideration"
+            },
+            {
+                "id": "blog_posts",
+                "name": "Blog Posts / Thought Leadership",
+                "category": "Content Assets",
+                "description": "Educational articles, insights, and thought leadership content",
+                "indicators": ["publication date", "author byline", "categories", "related posts"],
+                "buyer_journey_stage": "awareness"
+            },
+            {
+                "id": "case_studies",
+                "name": "Case Studies / Customer Stories",
+                "category": "Content Assets",
+                "description": "Customer success stories with challenges, solutions, and results",
+                "indicators": ["customer quotes", "challenge section", "results metrics"],
+                "buyer_journey_stage": "consideration"
+            },
+            {
+                "id": "landing_pages",
+                "name": "Landing Pages",
+                "category": "Sales & Conversion-Focused",
+                "description": "Campaign-specific pages optimized for conversion",
+                "indicators": ["single focus", "minimal navigation", "prominent form", "benefit bullets"],
+                "buyer_journey_stage": "decision"
+            }
+        ]
+        
         async with db_pool.acquire() as conn:
             result = await conn.fetchrow(
                 """
                 INSERT INTO analysis_config 
-                (personas, jtbd_phases, competitor_domains, custom_dimensions)
-                VALUES ($1, $2, $3, $4)
+                (personas, jtbd_phases, page_types, competitor_domains, custom_dimensions)
+                VALUES ($1, $2, $3, $4, $5)
                 RETURNING *
                 """,
                 json.dumps(default_personas),
                 json.dumps(default_jtbd_phases),
+                json.dumps(default_page_types),
                 json.dumps([]),
-                json.dumps({})
+                json.dumps(default_custom_dimensions)
             )
             
             data = dict(result)
             # Parse JSON fields
-            for field in ['personas', 'jtbd_phases', 'competitor_domains', 'custom_dimensions']:
+            for field in ['personas', 'jtbd_phases', 'page_types', 'competitor_domains', 'custom_dimensions']:
                 if data[field] and isinstance(data[field], str):
                     data[field] = json.loads(data[field])
             

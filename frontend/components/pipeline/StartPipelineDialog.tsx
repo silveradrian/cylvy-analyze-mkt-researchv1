@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { X, Play, Settings, Database, Globe } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Play, Database, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -20,13 +20,21 @@ interface StartPipelineDialogProps {
   onStart: (config: any) => Promise<void>;
 }
 
+interface RecentPipeline {
+  pipeline_id: string;
+  status: string;
+  started_at: string;
+  serp_results_collected: number;
+  runtime_minutes: number;
+}
+
 export function StartPipelineDialog({ open, onClose, onStart }: StartPipelineDialogProps) {
   const [config, setConfig] = useState({
-    keywords: null as string[] | null,
-    regions: ['US', 'UK'],
+    keywords: null as string[] | null,  // Will be removed from UI but kept for backend compatibility
+    regions: null as string[] | null,    // Will use main configuration from backend
     content_types: ['organic', 'news', 'video'],
     
-    // Concurrency settings
+    // Concurrency settings - hardcoded defaults
     max_concurrent_serp: 10,
     max_concurrent_enrichment: 15,
     max_concurrent_analysis: 20,
@@ -38,25 +46,55 @@ export function StartPipelineDialog({ open, onClose, onStart }: StartPipelineDia
     enable_historical_tracking: true,
     force_refresh: false,
     
+    // SERP reuse option
+    reuse_serp_enabled: false,
+    reuse_serp_from_pipeline_id: null as string | null,
+    
     // Mode
     mode: 'manual'
   });
-  
-  const [keywordInput, setKeywordInput] = useState('');
   const [isStarting, setIsStarting] = useState(false);
+  const [recentPipelines, setRecentPipelines] = useState<RecentPipeline[]>([]);
+  const [loadingPipelines, setLoadingPipelines] = useState(false);
 
-  const availableRegions = [
-    { code: 'US', name: 'United States' },
-    { code: 'UK', name: 'United Kingdom' },
-    { code: 'CA', name: 'Canada' },
-    { code: 'AU', name: 'Australia' },
-    { code: 'DE', name: 'Germany' },
-    { code: 'FR', name: 'France' },
-    { code: 'IN', name: 'India' },
-    { code: 'BR', name: 'Brazil' },
-    { code: 'JP', name: 'Japan' },
-    { code: 'SG', name: 'Singapore' }
-  ];
+  // Load recent successful pipelines when dialog opens
+  useEffect(() => {
+    if (open) {
+      loadRecentPipelines();
+    }
+  }, [open]);
+
+  const loadRecentPipelines = async () => {
+    try {
+      setLoadingPipelines(true);
+      const token = localStorage.getItem('access_token');
+      const response = await fetch('/api/v1/pipeline/recent?limit=10', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Filter for successful pipelines with SERP results
+        const successfulPipelines = (data.pipelines || [])
+          .filter((p: any) => p.status === 'completed' && p.serp_results_collected > 0)
+          .map((p: any) => ({
+            pipeline_id: p.pipeline_id,
+            status: p.status,
+            started_at: p.started_at,
+            serp_results_collected: p.serp_results_collected || 0,
+            runtime_minutes: p.runtime_minutes || 0
+          }))
+          .slice(0, 5); // Only show last 5 successful pipelines
+        
+        setRecentPipelines(successfulPipelines);
+      }
+    } catch (err) {
+      console.error('Failed to load recent pipelines:', err);
+    } finally {
+      setLoadingPipelines(false);
+    }
+  };
+
 
   const contentTypes = [
     { id: 'organic', name: 'Organic Results', description: 'Regular search results' },
@@ -64,14 +102,6 @@ export function StartPipelineDialog({ open, onClose, onStart }: StartPipelineDia
     { id: 'video', name: 'Video Results', description: 'YouTube and video content' }
   ];
 
-  const handleRegionChange = (regionCode: string, checked: boolean) => {
-    setConfig(prev => ({
-      ...prev,
-      regions: checked 
-        ? [...prev.regions, regionCode]
-        : prev.regions.filter(r => r !== regionCode)
-    }));
-  };
 
   const handleContentTypeChange = (contentType: string, checked: boolean) => {
     setConfig(prev => ({
@@ -82,42 +112,27 @@ export function StartPipelineDialog({ open, onClose, onStart }: StartPipelineDia
     }));
   };
 
-  const handleKeywordsChange = (value: string) => {
-    setKeywordInput(value);
-    if (value.trim()) {
-      const keywords = value.split('\n').map(k => k.trim()).filter(k => k);
-      setConfig(prev => ({ ...prev, keywords }));
-    } else {
-      setConfig(prev => ({ ...prev, keywords: null }));
-    }
-  };
 
   const handleStart = async () => {
     setIsStarting(true);
     try {
-      await onStart(config);
+      // Prepare config for submission
+      const submitConfig = { ...config };
+      
+      // Add SERP reuse parameter if enabled
+      if (config.reuse_serp_enabled && config.reuse_serp_from_pipeline_id) {
+        submitConfig.reuse_serp_from_pipeline_id = config.reuse_serp_from_pipeline_id;
+      }
+      
+      // Remove frontend-only fields
+      const { reuse_serp_enabled, ...finalConfig } = submitConfig;
+      
+      await onStart(finalConfig);
     } finally {
       setIsStarting(false);
     }
   };
 
-  const estimatedDuration = () => {
-    // Rough estimation based on settings
-    const keywordCount = config.keywords?.length || 50; // Assume 50 if all keywords
-    const regionCount = config.regions.length;
-    const contentTypeCount = config.content_types.length;
-    
-    const totalRequests = keywordCount * regionCount * contentTypeCount;
-    const estimatedMinutes = Math.ceil(totalRequests / config.max_concurrent_serp * 0.5);
-    
-    if (estimatedMinutes < 60) {
-      return `~${estimatedMinutes} minutes`;
-    } else {
-      const hours = Math.floor(estimatedMinutes / 60);
-      const mins = estimatedMinutes % 60;
-      return `~${hours}h ${mins}m`;
-    }
-  };
 
   if (!open) return null;
 
@@ -135,11 +150,9 @@ export function StartPipelineDialog({ open, onClose, onStart }: StartPipelineDia
         </DialogHeader>
 
         <Tabs defaultValue="scope" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="scope">Scope</TabsTrigger>
-            <TabsTrigger value="regions">Regions</TabsTrigger>
             <TabsTrigger value="features">Features</TabsTrigger>
-            <TabsTrigger value="performance">Performance</TabsTrigger>
           </TabsList>
 
           <TabsContent value="scope" className="space-y-6">
@@ -150,24 +163,16 @@ export function StartPipelineDialog({ open, onClose, onStart }: StartPipelineDia
                   Keywords & Content
                 </CardTitle>
                 <CardDescription>
-                  Define the scope of your analysis
+                  Select content types to analyze using the main project configuration
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="keywords">Keywords (optional)</Label>
-                  <Textarea
-                    id="keywords"
-                    placeholder="Enter keywords, one per line. Leave empty to process all keywords."
-                    value={keywordInput}
-                    onChange={(e) => handleKeywordsChange(e.target.value)}
-                    rows={4}
-                  />
-                  <p className="text-xs text-gray-600 mt-1">
-                    {config.keywords ? `${config.keywords.length} keywords specified` : 'Will process all keywords in database'}
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                  <p className="text-sm text-blue-800">
+                    💡 This pipeline will use the keywords and regions defined in your main project configuration.
                   </p>
                 </div>
-
+                
                 <div>
                   <Label className="text-base font-semibold">Content Types</Label>
                   <div className="grid gap-3 mt-2">
@@ -188,40 +193,73 @@ export function StartPipelineDialog({ open, onClose, onStart }: StartPipelineDia
                     ))}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
-          <TabsContent value="regions" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Globe className="h-4 w-4" />
-                  Geographic Regions
-                </CardTitle>
-                <CardDescription>
-                  Select regions for SERP collection
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-3">
-                  {availableRegions.map((region) => (
-                    <div key={region.code} className="flex items-center space-x-3">
-                      <Checkbox
-                        id={region.code}
-                        checked={config.regions.includes(region.code)}
-                        onCheckedChange={(checked) => handleRegionChange(region.code, !!checked)}
-                      />
-                      <Label htmlFor={region.code}>
-                        {region.name} ({region.code})
+                {/* SERP Reuse Option */}
+                <div className="border-t pt-4">
+                  <div className="flex items-center space-x-3 mb-3">
+                    <Checkbox
+                      id="reuse-serp"
+                      checked={config.reuse_serp_enabled}
+                      onCheckedChange={(checked) => 
+                        setConfig(prev => ({ 
+                          ...prev, 
+                          reuse_serp_enabled: !!checked,
+                          reuse_serp_from_pipeline_id: checked ? prev.reuse_serp_from_pipeline_id : null
+                        }))
+                      }
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="reuse-serp" className="font-medium flex items-center gap-2">
+                        <RefreshCw className="h-4 w-4" />
+                        Reuse Previous SERP Data
                       </Label>
+                      <p className="text-sm text-gray-600">
+                        Copy SERP results from a previous pipeline to save API costs
+                      </p>
                     </div>
-                  ))}
-                </div>
-                <div className="mt-4">
-                  <p className="text-sm text-gray-600">
-                    Selected: {config.regions.join(', ')}
-                  </p>
+                  </div>
+
+                  {config.reuse_serp_enabled && (
+                    <div className="ml-6 space-y-3">
+                      <div>
+                        <Label htmlFor="source-pipeline">Source Pipeline</Label>
+                        <Select
+                          value={config.reuse_serp_from_pipeline_id || ''}
+                          onValueChange={(value) => 
+                            setConfig(prev => ({ ...prev, reuse_serp_from_pipeline_id: value }))
+                          }
+                        >
+                          <SelectTrigger className="mt-1">
+                            <SelectValue placeholder={loadingPipelines ? "Loading pipelines..." : "Select a pipeline"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {recentPipelines.length === 0 && !loadingPipelines && (
+                              <SelectItem value="" disabled>No successful pipelines found</SelectItem>
+                            )}
+                            {recentPipelines.map((pipeline) => (
+                              <SelectItem key={pipeline.pipeline_id} value={pipeline.pipeline_id}>
+                                #{pipeline.pipeline_id.slice(0, 8)} • {pipeline.serp_results_collected.toLocaleString()} results • {' '}
+                                {new Date(pipeline.started_at).toLocaleDateString()}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {config.reuse_serp_from_pipeline_id && (
+                          <p className="text-xs text-green-600 mt-1">
+                            💡 This will skip SERP collection and reuse existing data
+                          </p>
+                        )}
+                      </div>
+                      
+                      {recentPipelines.length === 0 && !loadingPipelines && (
+                        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                          <p className="text-sm text-yellow-800">
+                            No successful pipelines with SERP data found. Complete a pipeline first to enable this option.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -328,102 +366,15 @@ export function StartPipelineDialog({ open, onClose, onStart }: StartPipelineDia
               </CardContent>
             </Card>
           </TabsContent>
-
-          <TabsContent value="performance" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  Performance Settings
-                </CardTitle>
-                <CardDescription>
-                  Adjust concurrency limits for optimal performance
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div>
-                  <Label htmlFor="serp-concurrency">
-                    SERP Collection Concurrency: {config.max_concurrent_serp}
-                  </Label>
-                  <Input
-                    id="serp-concurrency"
-                    type="range"
-                    min="1"
-                    max="50"
-                    value={config.max_concurrent_serp}
-                    onChange={(e) => 
-                      setConfig(prev => ({ ...prev, max_concurrent_serp: parseInt(e.target.value) }))
-                    }
-                    className="mt-2"
-                  />
-                  <p className="text-xs text-gray-600 mt-1">
-                    Higher values = faster SERP collection but may hit rate limits
-                  </p>
-                </div>
-
-                <div>
-                  <Label htmlFor="enrichment-concurrency">
-                    Company Enrichment Concurrency: {config.max_concurrent_enrichment}
-                  </Label>
-                  <Input
-                    id="enrichment-concurrency"
-                    type="range"
-                    min="1"
-                    max="30"
-                    value={config.max_concurrent_enrichment}
-                    onChange={(e) => 
-                      setConfig(prev => ({ ...prev, max_concurrent_enrichment: parseInt(e.target.value) }))
-                    }
-                    className="mt-2"
-                  />
-                  <p className="text-xs text-gray-600 mt-1">
-                    Limited by Cognism API rate limits
-                  </p>
-                </div>
-
-                <div>
-                  <Label htmlFor="analysis-concurrency">
-                    Content Analysis Concurrency: {config.max_concurrent_analysis}
-                  </Label>
-                  <Input
-                    id="analysis-concurrency"
-                    type="range"
-                    min="1"
-                    max="50"
-                    value={config.max_concurrent_analysis}
-                    onChange={(e) => 
-                      setConfig(prev => ({ ...prev, max_concurrent_analysis: parseInt(e.target.value) }))
-                    }
-                    className="mt-2"
-                  />
-                  <p className="text-xs text-gray-600 mt-1">
-                    Higher values = faster AI analysis but higher OpenAI costs
-                  </p>
-                </div>
-
-                {/* Estimation */}
-                <div className="p-4 bg-blue-50 rounded-lg">
-                  <h4 className="font-medium text-blue-900">Estimated Duration</h4>
-                  <p className="text-blue-700 text-lg font-semibold">{estimatedDuration()}</p>
-                  <p className="text-xs text-blue-600 mt-1">
-                    Based on {config.keywords?.length || 'all'} keywords × {config.regions.length} regions × {config.content_types.length} content types
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
 
         <div className="flex items-center justify-between pt-6">
           <div className="flex items-center gap-2">
             <Badge variant="secondary">
-              {config.regions.length} regions
-            </Badge>
-            <Badge variant="secondary">
               {config.content_types.length} content types
             </Badge>
             <Badge variant="secondary">
-              {config.keywords?.length || 'All'} keywords
+              Using project configuration
             </Badge>
           </div>
           
@@ -433,7 +384,7 @@ export function StartPipelineDialog({ open, onClose, onStart }: StartPipelineDia
             </Button>
             <Button 
               onClick={handleStart} 
-              disabled={isStarting || config.regions.length === 0 || config.content_types.length === 0}
+              disabled={isStarting || config.content_types.length === 0}
             >
               {isStarting ? 'Starting...' : 'Start Pipeline'}
             </Button>

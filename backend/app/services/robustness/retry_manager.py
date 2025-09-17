@@ -7,6 +7,7 @@ import asyncio
 import random
 from datetime import datetime, timedelta
 from typing import Callable, Any, Optional, Dict, TypeVar, Union
+import uuid
 from enum import Enum
 import asyncpg
 from loguru import logger
@@ -170,8 +171,12 @@ class RetryManager:
                     
                 # Success - record if tracking
                 if entity_type and entity_id and attempt > 1:
+                    try:
+                        normalized_entity_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(entity_id)))
+                    except Exception:
+                        normalized_entity_id = str(uuid.uuid4())
                     await self._record_retry_success(
-                        entity_type, entity_id, attempt
+                        entity_type, normalized_entity_id, attempt
                     )
                     
                 return result
@@ -212,8 +217,12 @@ class RetryManager:
                 
                 # Record retry attempt
                 if entity_type and entity_id:
+                    try:
+                        normalized_entity_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(entity_id)))
+                    except Exception:
+                        normalized_entity_id = str(uuid.uuid4())
                     await self._record_retry_attempt(
-                        entity_type, entity_id, attempt, 
+                        entity_type, normalized_entity_id, attempt, 
                         error_category['error_code'], str(e), delay
                     )
                 

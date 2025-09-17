@@ -9,7 +9,7 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/migrations:/docker-entrypoint-initdb.d
+      # Migrations are now handled by the application, not docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cylvy"]
       interval: 10s
@@ -50,6 +50,10 @@ services:
       COGNISM_API_KEY: ${COGNISM_API_KEY:-}
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
       
+      # DataForSEO Configuration
+      DATAFORSEO_LOGIN: ${DATAFORSEOKEY:-}
+      DATAFORSEO_PASSWORD: ${DATAFORSEOPW:-}
+      
       # Google Ads API Configuration
       GOOGLE_ADS_DEVELOPER_TOKEN: ${GOOGLE_ADS_DEVELOPER_TOKEN:-}
       GOOGLE_ADS_CLIENT_ID: ${GOOGLE_ADS_CLIENT_ID:-}
@@ -64,6 +68,9 @@ services:
       EVIDENCE_ANALYSIS_TIMEOUT: 45
       MAX_DIMENSIONS_PER_ANALYSIS: 20
       DYNAMIC_PROMPT_MAX_LENGTH: 16000
+      
+      # Performance Configuration
+      DEFAULT_SCRAPER_CONCURRENT_LIMIT: 80  # Utilize most of ScrapingBee's 100 concurrent capacity
     ports:
       - "8001:8000"
     volumes:
@@ -79,7 +86,7 @@ services:
         echo 'Initializing database...' &&
         python -m app.db.migrate init &&
         echo 'Database ready. Starting application...' &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
       "
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -93,9 +100,7 @@ services:
       dockerfile: Dockerfile
       target: development
     environment:
-      NODE_ENV: production
-      # Remove NEXT_PUBLIC_API_URL to force use of relative URLs
-      # NEXT_PUBLIC_API_URL: http://backend:8000/api/v1
+      NODE_ENV: development
       NEXT_PUBLIC_WS_URL: ws://localhost:8001/ws
       BACKEND_URL: http://backend:8000
       DOCKER_ENV: true

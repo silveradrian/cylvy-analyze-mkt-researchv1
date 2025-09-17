@@ -43,9 +43,9 @@ class PhaseOrchestrator:
         "company_enrichment_serp": ["serp_collection"],
         "youtube_enrichment": ["serp_collection"],
         "content_scraping": ["serp_collection"],  # Scrapes organic/news URLs from SERP
-        "company_enrichment_youtube": ["youtube_enrichment", "company_enrichment_serp"],
+        # Deprecated: company_enrichment_youtube removed; channel resolution handled by background resolver
         "content_analysis": ["content_scraping", "company_enrichment_serp", "youtube_enrichment"],
-        "dsi_calculation": ["content_analysis", "company_enrichment_youtube"]
+        "dsi_calculation": ["content_analysis"]
     }
     
     def __init__(self, db_pool: DatabasePool):
@@ -93,7 +93,12 @@ class PhaseOrchestrator:
                     ) VALUES ($1, $2, $3, NOW(), NOW())
                     ON CONFLICT (pipeline_execution_id, phase_name) 
                     DO UPDATE SET 
-                        status = EXCLUDED.status,
+                        -- Preserve existing terminal/running statuses when resuming
+                        status = CASE 
+                            WHEN pipeline_phase_status.status IN ('completed','running','failed','blocked')
+                                THEN pipeline_phase_status.status
+                            ELSE EXCLUDED.status
+                        END,
                         updated_at = NOW()
                     """,
                     pipeline_execution_id, phase, status
@@ -143,8 +148,28 @@ class PhaseOrchestrator:
             # Validate phase can be executed
             can_execute, reason = self.can_execute_phase(phase)
             if not can_execute:
-                raise ValueError(f"Cannot execute phase {phase}: {reason}")
+                # Special allowance: content_analysis may run out-of-phase when data is ready
+                if phase == "content_analysis":
+                    ready = await self._content_analysis_ready()
+                    if not ready:
+                        raise ValueError(f"Cannot execute phase {phase}: {reason}")
+                else:
+                    raise ValueError(f"Cannot execute phase {phase}: {reason}")
             
+            # Enforce runtime preconditions (e.g., SERP rows stored) before executing certain phases
+            preconditions_ok, block_reason = await self._check_preconditions(pipeline_execution_id, phase)
+            if not preconditions_ok:
+                # Mark as blocked and persist
+                self.phase_status[phase] = PhaseStatus.BLOCKED
+                await self._update_phase_status(
+                    pipeline_execution_id,
+                    phase,
+                    PhaseStatus.BLOCKED,
+                    {"blocked_by": block_reason}
+                )
+                self.logger.warning(f"Blocking phase {phase}: {block_reason}")
+                return {"success": False, "error": block_reason}
+
             # Get handler
             handler = self.phase_handlers.get(phase)
             if not handler:
@@ -212,6 +237,116 @@ class PhaseOrchestrator:
                 await self._block_dependent_phases(pipeline_execution_id, phase)
                 
                 raise
+
+    async def _check_preconditions(self, pipeline_execution_id: UUID, phase: str) -> Tuple[bool, Optional[str]]:
+        """Check DB-backed preconditions to avoid running phases too early."""
+        try:
+            async with self.db_pool.acquire() as conn:
+                if phase == "company_enrichment_serp":
+                    # Require SERP phase to be completed for this pipeline
+                    serp_phase_status = await conn.fetchval(
+                        """
+                        SELECT status::text
+                        FROM pipeline_phase_status
+                        WHERE pipeline_execution_id = $1 AND phase_name = 'serp_collection'
+                        """,
+                        pipeline_execution_id,
+                    )
+                    if serp_phase_status != 'completed':
+                        return False, "serp_phase_not_complete"
+                    count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM serp_results WHERE pipeline_execution_id = $1",
+                        pipeline_execution_id,
+                    )
+                    if not count or count == 0:
+                        return False, "no_serp_results"
+                elif phase == "content_scraping":
+                    count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM serp_results WHERE pipeline_execution_id = $1",
+                        pipeline_execution_id,
+                    )
+                    if not count or count == 0:
+                        return False, "no_serp_results_for_scraping"
+                elif phase == "youtube_enrichment":
+                    count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM serp_results WHERE pipeline_execution_id = $1 AND serp_type = 'video'",
+                        pipeline_execution_id,
+                    )
+                    if not count or count == 0:
+                        return False, "no_video_serp_results"
+                elif phase == "content_analysis":
+                    # Allow early run only if scraped + enriched (company) and not yet analyzed exist
+                    count = await conn.fetchval(
+                        """
+                        SELECT COUNT(*)
+                        FROM scraped_content sc
+                        LEFT JOIN company_profiles cp ON cp.domain = sc.domain
+                        LEFT JOIN optimized_content_analysis oca ON oca.url = sc.url
+                        WHERE sc.status = 'completed'
+                          AND sc.content IS NOT NULL
+                          AND LENGTH(sc.content) > 100
+                          AND (cp.company_name IS NOT NULL)
+                          AND oca.id IS NULL
+                        LIMIT 1
+                        """
+                    )
+                    if not count or count == 0:
+                        return False, "no_ready_content_for_analysis"
+                elif phase == "dsi_calculation":
+                    # Require some content analysis results (no date window) and that channels are resolved
+                    content_ready = await conn.fetchval(
+                        """
+                        SELECT COUNT(*)
+                        FROM optimized_content_analysis oca
+                        """
+                    )
+                    if not content_ready or int(content_ready) == 0:
+                        return False, "no_content_analysis_results"
+
+                    pending_channels = await conn.fetchval(
+                        """
+                        WITH all_channels AS (
+                            SELECT DISTINCT channel_id
+                            FROM video_snapshots
+                        )
+                        SELECT COUNT(*)
+                        FROM all_channels rc
+                        LEFT JOIN youtube_channel_companies ycc
+                          ON ycc.channel_id = rc.channel_id
+                        WHERE ycc.channel_id IS NULL OR COALESCE(ycc.company_domain, '') = ''
+                        """
+                    )
+                    if pending_channels and int(pending_channels) > 0:
+                        return False, "channel_company_resolution_pending"
+        except Exception as e:
+            # On DB error, be conservative and allow execution (don’t deadlock pipeline)
+            self.logger.warning(f"Precondition check error for phase {phase}: {e}")
+            return True, None
+
+        return True, None
+
+    async def _content_analysis_ready(self) -> bool:
+        """Check if content analysis can proceed out-of-phase (scraped + enriched present)."""
+        try:
+            async with self.db_pool.acquire() as conn:
+                count = await conn.fetchval(
+                    """
+                    SELECT COUNT(*)
+                    FROM scraped_content sc
+                    LEFT JOIN company_profiles cp ON cp.domain = sc.domain
+                    LEFT JOIN optimized_content_analysis oca ON oca.url = sc.url
+                    WHERE sc.status = 'completed'
+                      AND sc.content IS NOT NULL
+                      AND LENGTH(sc.content) > 100
+                      AND (cp.company_name IS NOT NULL)
+                      AND oca.id IS NULL
+                    LIMIT 1
+                    """
+                )
+                return bool(count and count > 0)
+        except Exception as e:
+            self.logger.warning(f"content_analysis readiness check failed: {e}")
+            return False
     
     async def _update_phase_status(
         self,

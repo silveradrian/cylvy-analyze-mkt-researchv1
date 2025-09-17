@@ -22,7 +22,7 @@ class KeywordBase(BaseModel):
     persona_rationale: Optional[str] = Field(None, description="Reasoning for persona score")
     seo_score: Optional[float] = Field(None, ge=0, le=100, description="SEO opportunity score")
     seo_rationale: Optional[str] = Field(None, description="Reasoning for SEO score")
-    composite_score: Optional[int] = Field(None, description="Overall composite score")
+    composite_score: Optional[float] = Field(None, description="Overall composite score")
     is_brand: bool = Field(False, description="Whether this is a brand keyword")
     is_active: bool = Field(True, description="Whether the keyword is active")
 
@@ -49,7 +49,7 @@ class KeywordUpdate(BaseModel):
     persona_rationale: Optional[str] = None
     seo_score: Optional[float] = Field(None, ge=0, le=100)
     seo_rationale: Optional[str] = None
-    composite_score: Optional[int] = None
+    composite_score: Optional[float] = None
     is_brand: Optional[bool] = None
     is_active: Optional[bool] = None
 

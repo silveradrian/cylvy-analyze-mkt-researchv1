@@ -136,4 +136,7 @@ class VideoEnrichmentResult(BaseModel):
     quota_used: int
     snapshots: List[VideoSnapshot]
     errors: List[Dict[str, str]] = []
-    processing_time: float 
+    processing_time: float
+    success: bool = True
+    success_rate: float = 100.0
+    total_videos: int = 0 

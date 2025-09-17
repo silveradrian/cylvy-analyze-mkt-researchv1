@@ -78,11 +78,6 @@ const AVAILABLE_COUNTRIES: Country[] = [
 
 // Regional Groupings for Quick Selection
 const REGIONAL_GROUPS = {
-  'client_primary': {
-    name: 'Your Client Markets',
-    countries: ['US', 'UK', 'DE', 'SA', 'VN'],
-    description: 'Primary markets for your next client'
-  },
   'emea': {
     name: 'EMEA',
     countries: ['UK', 'DE', 'FR', 'ES', 'IT', 'NL', 'BE', 'CH', 'AT', 'SE', 'NO', 'DK', 'FI', 'PL', 'CZ', 'HU', 'AE', 'SA', 'ZA'],
@@ -102,7 +97,7 @@ const REGIONAL_GROUPS = {
 
 export function CountriesKeywordsStep({ data, onComplete, onBack }: CountriesKeywordsStepProps) {
   const [selectedCountries, setSelectedCountries] = useState<string[]>(
-    data.target_countries || ['US', 'UK', 'DE', 'SA', 'VN']  // Default to client primary markets
+    data.target_countries || []
   )
   const [keywordFile, setKeywordFile] = useState<File | null>(null)
   const [uploadStatus, setUploadStatus] = useState<{
@@ -124,11 +119,7 @@ export function CountriesKeywordsStep({ data, onComplete, onBack }: CountriesKey
     if (data.existing_keywords && data.existing_keywords.length > 0) {
       console.log('✅ Using keywords from setup wizard existing_keywords:', data.existing_keywords.length);
       setExistingKeywords(data.existing_keywords);
-      setUploadStatus({
-        status: 'success',
-        message: `${data.existing_keywords.length} keywords already configured`,
-        details: { total: data.existing_keywords.length, existing: true }
-      });
+      // Do not mark uploadStatus success here; success should reflect this session's upload
     } else if (data.keywords_uploaded || data.keywords_count > 0) {
       console.log('✅ Keywords uploaded flag detected, loading from API...');
       loadExistingKeywords();
@@ -150,24 +141,27 @@ export function CountriesKeywordsStep({ data, onComplete, onBack }: CountriesKey
       })
 
       if (response.ok) {
-        const keywordData = await response.json()
-        console.log('📊 Existing keywords loaded:', keywordData.total || 0)
-        setExistingKeywords(keywordData.keywords || [])
+        const payload = await response.json()
+        // API may return a bare array or an object { keywords, total }
+        const items = Array.isArray(payload)
+          ? payload
+          : (Array.isArray(payload.keywords) ? payload.keywords : [])
+        const total = Array.isArray(payload)
+          ? payload.length
+          : (typeof payload.total === 'number' ? payload.total : items.length)
+
+        console.log('📊 Existing keywords loaded:', total)
+        setExistingKeywords(items)
         
-        // Mark as already uploaded if we have keywords
-        if (keywordData.total > 0) {
-          setUploadStatus({
-            status: 'success',
-            message: `${keywordData.total} keywords already configured`,
-            details: { total: keywordData.total, existing: true }
-          })
-        }
+        // Do not automatically set success status here; keep status tied to upload action
+        return { total, keywords: items }
       }
     } catch (error) {
       console.error('Failed to load existing keywords:', error)
     } finally {
       setLoadingKeywords(false)
     }
+    return { total: 0, keywords: [] }
   }
 
   const toggleCountry = (countryCode: string) => {
@@ -209,13 +203,34 @@ export function CountriesKeywordsStep({ data, onComplete, onBack }: CountriesKey
 
     setUploadStatus({ status: 'uploading', message: 'Uploading keywords...' })
 
+    // Parse CSV locally to get the exact keyword list for config
+    const parseCsvKeywords = async (file: File): Promise<string[]> => {
+      const text = await file.text()
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0)
+      if (lines.length === 0) return []
+      // Try to detect header
+      const header = lines[0].split(',').map(h => h.trim().toLowerCase())
+      let keywordIdx = 0
+      const hasHeader = header.some(h => h.includes('keyword'))
+      if (hasHeader) {
+        keywordIdx = header.findIndex(h => h.includes('keyword'))
+      }
+      const start = hasHeader ? 1 : 0
+      const out: string[] = []
+      for (let i = start; i < lines.length; i++) {
+        const cols = lines[i].split(',')
+        const kw = (cols[keywordIdx] || '').trim()
+        if (kw) out.push(kw)
+      }
+      return out
+    }
+
     try {
       const formData = new FormData()
       formData.append('file', keywordFile)
-      formData.append('regions', selectedCountries.join(','))
 
       const token = localStorage.getItem('access_token')
-      const response = await fetch('/api/v1/keywords/upload', {
+      const response = await fetch(`/api/v1/keywords/upload?replace=true&regions=${encodeURIComponent(selectedCountries.join(','))}` , {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -228,15 +243,60 @@ export function CountriesKeywordsStep({ data, onComplete, onBack }: CountriesKey
         console.log('📤 Upload Response:', result)
         
         if (result.keywords_processed > 0) {
+          // Parse the uploaded CSV for the authoritative list
+          const parsedKeywords = await parseCsvKeywords(keywordFile)
+
           setUploadStatus({
             status: 'success',
             message: `Successfully uploaded ${result.keywords_processed} keywords`,
             details: result
           })
           
-          // Reload keywords to update the display
+          // Update active schedule regions to match selection (best effort)
+          try {
+            const token2 = localStorage.getItem('access_token')
+            const schedResp = await fetch('/api/v1/pipeline/schedules', {
+              headers: { 'Authorization': `Bearer ${token2}` }
+            })
+            if (schedResp.ok) {
+              const schedData = await schedResp.json()
+              const active = (schedData.schedules || []).find((s: any) => s.is_active)
+              if (active) {
+                await fetch(`/api/v1/pipeline/schedules/${active.id}`, {
+                  method: 'PUT',
+                  headers: {
+                    'Authorization': `Bearer ${token2}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ regions: selectedCountries })
+                })
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to update schedule regions from Countries step:', e)
+          }
+          
+          // Reload keywords to update the display (non-authoritative)
           console.log('🔄 Reloading keywords after successful upload...');
-          await loadExistingKeywords();
+          const loaded = await loadExistingKeywords();
+
+          // Persist exact uploaded keyword list + regions into unified config
+          try {
+            const token3 = localStorage.getItem('access_token')
+            await fetch('/api/v1/pipeline/config', {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${token3}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                keywords: parsedKeywords,
+                regions: selectedCountries
+              })
+            })
+          } catch (e) {
+            console.warn('Failed to persist keywords/regions to unified config:', e)
+          }
         } else {
           setUploadStatus({
             status: 'error',
@@ -337,9 +397,7 @@ cloud banking,Technology,Decision,2800,8.8,7.8,9.0,false`
                   variant="outline"
                   size="sm"
                   onClick={() => selectRegionalGroup(key)}
-                  className={`text-left h-auto p-3 bg-white hover:bg-gray-50 ${
-                    key === 'client_primary' ? 'border-cylvy-amaranth bg-cylvy-amaranth/5' : 'border-gray-200'
-                  }`}
+                  className={`text-left h-auto p-3 bg-white hover:bg-gray-50 border-gray-200`}
                 >
                   <div className="w-full">
                     <div className="font-medium text-sm text-gray-900">{group.name}</div>
@@ -352,9 +410,6 @@ cloud banking,Technology,Decision,2800,8.8,7.8,9.0,false`
             <div className="flex gap-2 bg-white">
               <Button variant="outline" size="sm" onClick={clearSelection} className="bg-white hover:bg-gray-50">
                 Clear All
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => selectRegionalGroup('client_primary')} className="bg-white hover:bg-gray-50">
-                Reset to Primary Markets
               </Button>
             </div>
           </div>
@@ -423,56 +478,10 @@ cloud banking,Technology,Decision,2800,8.8,7.8,9.0,false`
         </CardContent>
       </Card>
 
-      {/* Existing Keywords Status */}
-      {loadingKeywords && (
-        <Card className="bg-blue-50 border-blue-200">
-          <CardContent className="py-4">
-            <div className="flex items-center gap-3">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-blue-700">Checking for existing keywords...</span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {existingKeywords.length > 0 && (
+      {/* Existing Keywords Status (hidden to keep client-agnostic UX) */}
+      {false && existingKeywords.length > 0 && (
         <Card className="bg-green-50 border-green-200">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-green-800">
-              <CheckCircle className="h-5 w-5" />
-              Existing Keywords Configuration
-            </CardTitle>
-            <CardDescription className="text-green-700">
-              Your project already has {existingKeywords.length} keywords configured.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 bg-white">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-32 overflow-y-auto">
-              {existingKeywords.slice(0, 12).map((keyword: any, index: number) => (
-                <Badge key={index} variant="secondary" className="text-xs">
-                  {keyword.keyword}
-                </Badge>
-              ))}
-              {existingKeywords.length > 12 && (
-                <Badge variant="outline" className="text-xs">
-                  +{existingKeywords.length - 12} more
-                </Badge>
-              )}
-            </div>
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-sm text-green-600">
-                ✅ Keywords are configured and ready for analysis
-              </span>
-              <Button
-                onClick={loadExistingKeywords}
-                variant="outline"
-                size="sm"
-                className="text-xs"
-              >
-                🔄 Refresh
-              </Button>
-            </div>
-          </CardContent>
+          {/* hidden */}
         </Card>
       )}
 
@@ -480,12 +489,12 @@ cloud banking,Technology,Decision,2800,8.8,7.8,9.0,false`
       <Card className="bg-white">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-cylvy-midnight">
-            {existingKeywords.length > 0 ? <CheckCircle className="h-5 w-5 text-green-600" /> : <FileText className="h-5 w-5" />}
-            {existingKeywords.length > 0 ? 'Keywords Successfully Uploaded' : 'Keywords Upload'}
+            {uploadStatus.status === 'success' ? <CheckCircle className="h-5 w-5 text-green-600" /> : <FileText className="h-5 w-5" />}
+            {uploadStatus.status === 'success' ? 'Keywords Successfully Uploaded' : 'Keywords Upload'}
           </CardTitle>
           <CardDescription>
-            {existingKeywords.length > 0 
-              ? `✅ ${existingKeywords.length} keywords are configured and ready for analysis. You can re-upload to update them.`
+            {uploadStatus.status === 'success' 
+              ? `✅ ${(existingKeywords?.length || 0)} keywords are configured and ready for analysis. You can re-upload to update them.`
               : 'Upload your CSV file with keywords, categories, scores, and rationales. These keywords will be analyzed across all selected countries.'
             }
           </CardDescription>
@@ -599,7 +608,7 @@ cloud banking,Technology,Decision,2800,8.8,7.8,9.0,false`
           className="cylvy-btn-primary"
           disabled={selectedCountries.length === 0}
         >
-          Continue to Branding
+          Save keywords config
         </Button>
       </div>
     </div>

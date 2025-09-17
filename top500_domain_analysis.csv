@@ -1,0 +1,501 @@
+rank,domain,expected_company_name,serp_count,keyword_count,avg_position,page_count,total_traffic,current_enrichment_status,current_industry,is_major_company,enrichment_priority
+1,www.youtube.com,Youtube,83928,338,25.5,12195,0,NOT_ENRICHED,,False,MEDIUM
+2,www.businesswire.com,Businesswire,2161,218,16.1,136,0,NOT_ENRICHED,,False,MEDIUM
+3,www.nucamp.co,Nucamp,1187,77,22.0,115,0,NOT_ENRICHED,,False,MEDIUM
+4,www.newser.com,Newser,1050,42,32.4,237,0,NOT_ENRICHED,,False,MEDIUM
+5,appinventiv.com,Appinventiv,1045,140,14.2,16,0,Appinventiv,Information Technology And Services,False,MEDIUM
+6,www.cnbc.com,Cnbc,962,45,24.0,38,0,NOT_ENRICHED,,False,MEDIUM
+7,markets.financialcontent.com,Markets,959,161,29.1,149,0,FinancialContent Inc.,Information Technology And Services,False,MEDIUM
+8,www.pymnts.com,Pymnts,941,129,16.0,71,0,NOT_ENRICHED,,False,MEDIUM
+9,www.openpr.com,Openpr,908,131,17.9,56,0,NOT_ENRICHED,,False,MEDIUM
+10,finance.yahoo.com,Finance,869,138,14.8,162,0,Richardson Studio,Arts And Crafts,False,MEDIUM
+11,www.stocktitan.net,Stocktitan,858,118,24.0,68,0,NOT_ENRICHED,,False,MEDIUM
+12,www.onesafe.io,Onesafe,805,63,14.2,68,0,NOT_ENRICHED,,False,MEDIUM
+13,www.forbes.com,Forbes,749,99,22.6,49,0,NOT_ENRICHED,,False,MEDIUM
+14,ffnews.com,Ffnews,702,122,12.1,38,0,Ffnews,,False,MEDIUM
+15,www.businessnewsdaily.com,Businessnewsdaily,679,94,23.3,15,0,NOT_ENRICHED,,False,MEDIUM
+16,www.prnewswire.com,Prnewswire,663,140,10.2,55,0,NOT_ENRICHED,,False,MEDIUM
+17,www.netguru.com,Netguru,611,105,15.9,17,0,NOT_ENRICHED,,False,MEDIUM
+18,www.newstrail.com,Newstrail,607,84,32.6,16,0,NOT_ENRICHED,,False,MEDIUM
+19,www.business.com,Business,581,80,25.5,18,0,NOT_ENRICHED,,False,MEDIUM
+20,fintech.global,Fintech,571,99,6.0,18,0,FinTech Global,Financial Services,False,MEDIUM
+21,ibsintelligence.com,Ibsintelligence,526,88,9.2,21,0,IBS Intelligence,Government Administration,False,MEDIUM
+22,www.finastra.com,Finastra,509,145,4.8,40,0,Finastra,Information Technology And Services,False,MEDIUM
+23,m.youtube.com,M,486,153,29.0,109,0,JR Imperato - DIREITOem60,Judiciary,False,MEDIUM
+24,www.gartner.com,Gartner,472,123,4.4,10,0,NOT_ENRICHED,,True,HIGH
+25,www.msn.com,Msn,423,105,24.8,72,0,NOT_ENRICHED,,False,MEDIUM
+26,www.manilatimes.net,Manilatimes,423,98,30.8,67,0,NOT_ENRICHED,,False,MEDIUM
+27,fox4kc.com,Fox4Kc,414,100,19.5,51,0,WDAF-TV,Broadcast Media,False,MEDIUM
+28,markets.businessinsider.com,Markets,408,61,24.0,34,0,Insider,Information Technology And Services,False,MEDIUM
+29,fintechmagazine.com,Fintechmagazine,406,72,8.1,25,0,FinTech Magazine,Financial Services,False,MEDIUM
+30,simplywall.st,Simplywall,395,69,19.0,62,0,Simply Wall St,Computer Software,False,MEDIUM
+31,www.zawya.com,Zawya,393,75,23.6,35,0,NOT_ENRICHED,,False,MEDIUM
+32,stripe.com,Stripe,385,88,3.8,56,0,Périphérie | Magazine,Publishing,False,MEDIUM
+33,www.theglobeandmail.com,Theglobeandmail,367,84,24.4,68,0,NOT_ENRICHED,,False,MEDIUM
+34,www.jpmorgan.com,Jpmorgan,364,81,4.2,37,0,NOT_ENRICHED,,True,HIGH
+35,www.marketbeat.com,Marketbeat,360,35,27.0,71,0,NOT_ENRICHED,,False,MEDIUM
+36,www.fisglobal.com,Fisglobal,323,114,5.2,26,0,NOT_ENRICHED,,False,MEDIUM
+37,www.tradingview.com,Tradingview,322,63,18.4,46,0,NOT_ENRICHED,,False,MEDIUM
+38,fintechnews.sg,Fintechnews,291,56,13.7,11,0,Fintech News Singapore - Part Of Fintech News Network,Media Production,False,MEDIUM
+39,thefintechtimes.com,Thefintechtimes,287,51,15.2,17,0,The Fintech Times,Newspapers,False,MEDIUM
+40,financialit.net,Financialit,271,67,10.4,33,0,Financial IT,Media Production,False,MEDIUM
+41,www.ey.com,Ey,265,57,10.1,36,0,NOT_ENRICHED,,True,HIGH
+42,www.oracle.com,Oracle,258,88,5.7,56,0,NOT_ENRICHED,,True,HIGH
+43,www.ibm.com,Ibm,255,58,3.7,22,0,NOT_ENRICHED,,True,HIGH
+44,www.finextra.com,Finextra,251,58,11.5,19,0,NOT_ENRICHED,,False,MEDIUM
+45,techafricanews.com,Techafricanews,250,52,5.9,20,0,NOT_ENRICHED,,False,MEDIUM
+46,www.business-standard.com,Business-Standard,242,46,21.9,36,0,NOT_ENRICHED,,False,MEDIUM
+47,www.nerdwallet.com,Nerdwallet,240,38,24.5,22,0,NOT_ENRICHED,,False,MEDIUM
+48,www.bitget.com,Bitget,239,30,17.7,38,0,NOT_ENRICHED,,False,MEDIUM
+49,www.bloomberg.com,Bloomberg,226,45,13.7,39,0,NOT_ENRICHED,,False,MEDIUM
+50,businessday.ng,Businessday,222,51,25.8,18,0,NOT_ENRICHED,,False,MEDIUM
+51,www.prweb.com,Prweb,221,47,8.3,1,0,NOT_ENRICHED,,False,MEDIUM
+52,sbs-software.com,Sbs-Software,210,69,4.9,16,0,NOT_ENRICHED,,False,MEDIUM
+53,www.globenewswire.com,Globenewswire,208,55,20.2,39,0,NOT_ENRICHED,,False,MEDIUM
+54,www.paymentsjournal.com,Paymentsjournal,207,44,12.3,8,0,NOT_ENRICHED,,False,MEDIUM
+55,www.investing.com,Investing,200,46,11.9,26,0,NOT_ENRICHED,,False,MEDIUM
+56,www.accessnewswire.com,Accessnewswire,200,45,10.1,15,0,NOT_ENRICHED,,False,MEDIUM
+57,guardian.ng,Guardian,195,46,33.2,19,0,Guardian Nigeria,Newspapers,False,MEDIUM
+58,en.wikipedia.org,En,194,53,4.1,25,0,Davide Nicola - #Semprealmassimo,Sports,False,MEDIUM
+59,lendfusion.com,Lendfusion,192,46,3.5,8,0,Lendfusion,Information Technology And Services,False,MEDIUM
+60,financefeeds.com,Financefeeds,187,39,28.4,18,0,FinanceFeeds,Financial Services,False,MEDIUM
+61,www.techinafrica.com,Techinafrica,185,30,14.7,9,0,NOT_ENRICHED,,False,MEDIUM
+62,www.kyriba.com,Kyriba,183,46,4.4,17,0,NOT_ENRICHED,,False,MEDIUM
+63,internationalbanker.com,Internationalbanker,183,38,6.5,4,0,International Banker,Broadcast Media,False,MEDIUM
+64,pulse2.com,Pulse2,181,44,16.2,19,0,Pulse 2.0,Computer Software,False,MEDIUM
+65,www.fiserv.com,Fiserv,175,74,5.6,25,0,NOT_ENRICHED,,True,HIGH
+66,news.futunn.com,News,171,39,15.2,11,0,Futunn,,False,MEDIUM
+67,www.thoughtmachine.net,Thoughtmachine,169,52,4.0,4,0,NOT_ENRICHED,,False,MEDIUM
+68,thefinancialbrand.com,Thefinancialbrand,167,25,11.7,12,0,The Financial Brand,Financial Services,False,MEDIUM
+69,www.reuters.com,Reuters,166,36,14.5,17,0,NOT_ENRICHED,,False,MEDIUM
+70,sdk.finance,Sdk,163,57,5.1,19,0,SDK.finance,Computer Software,False,MEDIUM
+71,www.tribuneindia.com,Tribuneindia,153,38,15.8,9,0,NOT_ENRICHED,,False,MEDIUM
+72,www.crowdfundinsider.com,Crowdfundinsider,153,27,14.4,10,0,NOT_ENRICHED,,False,MEDIUM
+73,www.bizjournals.com,Bizjournals,151,33,22.4,16,0,NOT_ENRICHED,,False,MEDIUM
+74,www.morningstar.com,Morningstar,145,44,12.1,18,0,NOT_ENRICHED,,False,MEDIUM
+75,www.businessupturn.com,Businessupturn,144,34,36.4,4,0,NOT_ENRICHED,,False,MEDIUM
+76,m.economictimes.com,M,143,34,29.5,26,0,Mateshwari Urban Transport Solution Pvt Ltd,Transportation/Trucking/Railroad,False,MEDIUM
+77,www.globalpayments.com,Globalpayments,142,25,3.1,27,0,NOT_ENRICHED,,False,MEDIUM
+78,marketsherald.com,Marketsherald,141,31,14.4,1,0,Marketsherald,,False,MEDIUM
+79,www.nomentia.com,Nomentia,140,38,5.1,13,0,NOT_ENRICHED,,False,MEDIUM
+80,timesofindia.indiatimes.com,Timesofindia,140,36,21.8,18,0,Wiseinvest Advisors Pvt Ltd,Financial Services,False,MEDIUM
+81,www.gtreasury.com,Gtreasury,139,36,5.8,11,0,NOT_ENRICHED,,False,MEDIUM
+82,www.investopedia.com,Investopedia,137,33,14.3,19,0,NOT_ENRICHED,,False,MEDIUM
+83,ableplatform.io,Ableplatform,135,41,5.1,5,0,ABLE Platform - Loan Management System,Computer Software,False,MEDIUM
+84,www.bankersadda.com,Bankersadda,135,30,36.5,6,0,NOT_ENRICHED,,False,MEDIUM
+85,ktla.com,Ktla,134,46,15.0,17,0,KTLA,Broadcast Media,False,MEDIUM
+86,mambu.com,Mambu,134,35,4.9,8,0,Mambu,Financial Services,False,MEDIUM
+87,www.deloitte.com,Deloitte,133,43,7.4,32,0,NOT_ENRICHED,,True,HIGH
+88,www.loanpro.io,Loanpro,129,33,4.7,3,0,NOT_ENRICHED,,False,MEDIUM
+89,www.inman.com,Inman,126,31,6.0,1,0,NOT_ENRICHED,,False,MEDIUM
+90,www.americanbanker.com,Americanbanker,126,27,17.8,16,0,NOT_ENRICHED,,False,MEDIUM
+91,www.mk.co.kr,Mk,125,24,33.2,15,0,NOT_ENRICHED,,False,MEDIUM
+92,www.britannica.com,Britannica,124,28,24.6,25,0,NOT_ENRICHED,,False,MEDIUM
+93,www.eureporter.co,Eureporter,123,26,5.8,1,0,NOT_ENRICHED,,False,MEDIUM
+94,uk.finance.yahoo.com,Uk,122,30,16.2,32,0,Richardson Studio,Arts And Crafts,False,MEDIUM
+95,nairametrics.com,Nairametrics,121,32,31.4,6,0,Nairametrics,Online Media,False,MEDIUM
+96,fortuneherald.com,Fortuneherald,121,23,18.0,5,0,Fortuneherald,,False,MEDIUM
+97,www.10xbanking.com,10Xbanking,119,44,6.4,6,0,NOT_ENRICHED,,False,MEDIUM
+98,www.adda247.com,Adda247,117,24,31.2,7,0,NOT_ENRICHED,,False,MEDIUM
+99,coinfomania.com,Coinfomania,116,30,22.2,10,0,Coinfomania,Information Technology And Services,False,MEDIUM
+100,www.housingwire.com,Housingwire,115,23,17.1,7,0,NOT_ENRICHED,,False,MEDIUM
+101,kpmg.com,Kpmg,114,42,4.9,32,0,Roma Nwis,Broadcast Media,True,HIGH
+102,www.quiverquant.com,Quiverquant,113,28,12.9,14,0,NOT_ENRICHED,,False,MEDIUM
+103,www.thedailystar.net,Thedailystar,112,25,24.4,12,0,NOT_ENRICHED,,False,MEDIUM
+104,www.travelandtourworld.com,Travelandtourworld,112,23,15.5,11,0,NOT_ENRICHED,,False,MEDIUM
+105,themalaysianreserve.com,Themalaysianreserve,106,36,30.6,22,0,TMR Media Sdn Bhd,Publishing,False,MEDIUM
+106,www.khodrobank.com,Khodrobank,106,15,17.6,31,0,NOT_ENRICHED,,False,MEDIUM
+107,www.temenos.com,Temenos,105,37,5.8,11,0,NOT_ENRICHED,,False,MEDIUM
+108,vocal.media,Vocal,105,22,26.5,5,0,NOT_ENRICHED,,False,MEDIUM
+109,www.meridianlink.com,Meridianlink,104,37,4.9,12,0,NOT_ENRICHED,,False,MEDIUM
+110,www.prnewswire.co.uk,Prnewswire,103,32,17.6,12,0,NOT_ENRICHED,,False,MEDIUM
+111,www.fintechfutures.com,Fintechfutures,103,28,13.7,10,0,NOT_ENRICHED,,False,MEDIUM
+112,www.pwc.com,Pwc,102,39,5.5,22,0,NOT_ENRICHED,,True,HIGH
+113,cryptorank.io,Cryptorank,102,35,24.0,30,0,CryptoRank,Information Technology And Services,False,MEDIUM
+114,techround.co.uk,Techround,102,22,16.7,3,0,TechRound,Marketing And Advertising,False,MEDIUM
+115,seekingalpha.com,Seekingalpha,101,26,14.3,18,0,Seeking Alpha,Information Technology And Services,False,MEDIUM
+116,coinlaw.io,Coinlaw,101,22,11.6,11,0,NOT_ENRICHED,,False,MEDIUM
+117,www.newswire.com,Newswire,100,27,22.1,6,0,NOT_ENRICHED,,False,MEDIUM
+118,www.defenseworld.net,Defenseworld,100,26,32.7,14,0,NOT_ENRICHED,,False,MEDIUM
+119,www.openbankingexpo.com,Openbankingexpo,100,15,4.5,3,0,NOT_ENRICHED,,False,MEDIUM
+120,www.abrigo.com,Abrigo,99,39,6.3,9,0,NOT_ENRICHED,,False,LOW
+121,editorialge.com,Editorialge,99,27,34.6,1,0,Editorialge,Online Media,False,LOW
+122,www.digitaljournal.com,Digitaljournal,99,26,21.6,12,0,NOT_ENRICHED,,False,LOW
+123,www.linkedin.com,Linkedin,98,35,10.0,25,0,NOT_ENRICHED,,False,LOW
+124,coincentral.com,Coincentral,98,25,17.1,13,0,CoinCentral,Media Production,False,LOW
+125,www.irrigator.com.au,Irrigator,98,20,17.9,1,0,NOT_ENRICHED,,False,LOW
+126,electroiq.com,Electroiq,98,20,32.8,5,0,NOT_ENRICHED,,False,LOW
+127,fox40.com,Fox40,97,34,21.2,15,0,KTXL FOX40 News,Broadcast Media,False,LOW
+128,m.in.investing.com,M,97,32,30.6,2,0,RTI INTERNATIONAL METALS LIMITED,Manufacturing,False,LOW
+129,99bitcoins.com,99Bitcoins,96,26,20.5,6,0,99 Coins International PTE. LTD.,Education,False,LOW
+130,www.electronicpaymentsinternational.com,Electronicpaymentsinternational,96,19,16.0,8,0,NOT_ENRICHED,,False,LOW
+131,www.moderntreasury.com,Moderntreasury,95,28,5.2,11,0,NOT_ENRICHED,,False,LOW
+132,vietnamnews.vn,Vietnamnews,95,20,12.8,9,0,NOT_ENRICHED,,False,LOW
+133,waya.media,Waya,95,16,14.9,9,0,WAYA,Online Media,False,LOW
+134,www.capitalmarket.com,Capitalmarket,95,15,23.7,23,0,NOT_ENRICHED,,False,LOW
+135,www.thefastmode.com,Thefastmode,94,20,11.3,10,0,NOT_ENRICHED,,False,LOW
+136,mortgageorb.com,Mortgageorb,94,15,13.1,6,0,NOT_ENRICHED,,False,LOW
+137,www.scotsmanguide.com,Scotsmanguide,93,19,8.5,3,0,NOT_ENRICHED,,False,LOW
+138,www.wolterskluwer.com,Wolterskluwer,92,19,6.7,9,0,NOT_ENRICHED,,False,LOW
+139,cioafrica.co,Cioafrica,91,20,8.7,1,0,NOT_ENRICHED,,False,LOW
+140,www.cbs42.com,Cbs42,90,27,16.1,14,0,NOT_ENRICHED,,False,LOW
+141,www.bernama.com,Bernama,90,21,23.0,4,0,NOT_ENRICHED,,False,LOW
+142,www.avail.co,Avail,90,21,28.2,2,0,NOT_ENRICHED,,False,LOW
+143,www.moodys.com,Moodys,89,34,6.2,7,0,NOT_ENRICHED,,False,LOW
+144,ventureburn.com,Ventureburn,88,25,24.2,3,0,Ventureburn,Publishing,False,LOW
+145,www.nestegg.com.au,Nestegg,88,19,15.3,2,0,NOT_ENRICHED,,False,LOW
+146,www.bankrate.com,Bankrate,87,29,18.0,11,0,NOT_ENRICHED,,False,LOW
+147,www.mckinsey.com,Mckinsey,87,27,5.3,19,0,NOT_ENRICHED,,True,HIGH
+148,www.mastercard.com,Mastercard,87,23,4.4,10,0,NOT_ENRICHED,,True,HIGH
+149,www.marketscreener.com,Marketscreener,86,25,17.7,16,0,NOT_ENRICHED,,False,LOW
+150,www.bworldonline.com,Bworldonline,86,23,25.8,10,0,NOT_ENRICHED,,False,LOW
+151,www.nhsconfed.org,Nhsconfed,86,20,17.0,1,0,NOT_ENRICHED,,False,LOW
+152,www.paymentsdive.com,Paymentsdive,86,17,11.9,9,0,NOT_ENRICHED,,False,LOW
+153,www.thecitizen.co.tz,Thecitizen,86,15,19.7,3,0,NOT_ENRICHED,,False,LOW
+154,tradebrains.in,Tradebrains,85,32,33.1,5,0,Trade Brains,Financial Services,False,LOW
+155,tearsheet.co,Tearsheet,85,15,10.3,3,0,Tearsheet,Financial Services,False,LOW
+156,www.webpronews.com,Webpronews,84,22,24.5,12,0,NOT_ENRICHED,,False,LOW
+157,propakistani.pk,Propakistani,82,20,28.5,7,0,Neuromise,Design,False,LOW
+158,www.ripplesnigeria.com,Ripplesnigeria,82,17,25.7,1,0,NOT_ENRICHED,,False,LOW
+159,www.jackhenry.com,Jackhenry,80,50,5.8,12,0,NOT_ENRICHED,,False,LOW
+160,www.disruptionbanking.com,Disruptionbanking,80,21,7.2,8,0,NOT_ENRICHED,,False,LOW
+161,www.mpamag.com,Mpamag,80,16,18.1,15,0,NOT_ENRICHED,,False,LOW
+162,trovata.io,Trovata,79,23,5.6,15,0,Trovata,Financial Services,False,LOW
+163,www.finews.com,Finews,79,18,7.5,1,0,NOT_ENRICHED,,False,LOW
+164,www.techloy.com,Techloy,79,16,10.1,2,0,NOT_ENRICHED,,False,LOW
+165,www.01net.it,01Net,78,29,15.0,10,0,NOT_ENRICHED,,False,LOW
+166,www.businessofapps.com,Businessofapps,78,9,29.2,13,0,NOT_ENRICHED,,False,LOW
+167,www.afr.com,Afr,77,20,23.7,8,0,NOT_ENRICHED,,False,LOW
+168,www.sttinfo.fi,Sttinfo,76,25,16.8,10,0,NOT_ENRICHED,,False,LOW
+169,today.thefinancialexpress.com.bd,Today,76,19,24.2,10,0,The Financial Express,Newspapers,False,LOW
+170,www.sap.com,Sap,74,28,5.9,16,0,NOT_ENRICHED,,True,HIGH
+171,www.tipranks.com,Tipranks,74,16,28.6,21,0,NOT_ENRICHED,,False,LOW
+172,gulfnews.com,Gulfnews,74,16,29.1,9,0,NOT_ENRICHED,,False,LOW
+173,www.sas.com,Sas,73,13,2.8,21,0,NOT_ENRICHED,,False,LOW
+174,www.aryza.com,Aryza,72,39,4.7,8,0,NOT_ENRICHED,,False,LOW
+175,asianbankingandfinance.net,Asianbankingandfinance,72,20,11.0,5,0,Asian Banking & Finance,Publishing,False,LOW
+176,www.etvbharat.com,Etvbharat,72,16,28.2,2,0,NOT_ENRICHED,,False,LOW
+177,www.businessdailyafrica.com,Businessdailyafrica,71,17,21.1,10,0,NOT_ENRICHED,,False,LOW
+178,cointelegraph.com,Cointelegraph,71,16,19.6,18,0,Cointelegraph Türkiye,Publishing,False,LOW
+179,business.bofa.com,Business,70,28,6.6,7,0,NOT_ENRICHED,,False,LOW
+180,www.financialprofessionals.org,Financialprofessionals,70,26,5.7,10,0,NOT_ENRICHED,,False,LOW
+181,newshub.medianet.com.au,Newshub,70,18,24.9,2,0,Medianet - Media Intelligence Made Smarter,Information Technology And Services,False,LOW
+182,sqmagazine.co.uk,Sqmagazine,70,17,14.4,2,0,NOT_ENRICHED,,False,LOW
+183,bankautomationnews.com,Bankautomationnews,70,11,10.7,8,0,NOT_ENRICHED,,False,LOW
+184,www.adyen.com,Adyen,69,23,5.3,16,0,NOT_ENRICHED,,False,LOW
+185,startups.co.uk,Startups,69,16,15.7,2,0,Startups.co.uk,Publishing,False,LOW
+186,www.vietnam.vn,Vietnam,68,48,3.7,19,0,NOT_ENRICHED,,False,LOW
+187,www.thunes.com,Thunes,68,19,7.1,6,0,NOT_ENRICHED,,False,LOW
+188,ca.finance.yahoo.com,Ca,68,19,19.6,13,0,Richardson Studio,Arts And Crafts,False,LOW
+189,www.digitalnewsasia.com,Digitalnewsasia,68,19,24.2,3,0,NOT_ENRICHED,,False,LOW
+190,www.bobsguide.com,Bobsguide,68,16,5.7,7,0,NOT_ENRICHED,,False,LOW
+191,indianmasterminds.com,Indianmasterminds,68,11,28.4,4,0,IndianMasterminds,Online Media,False,LOW
+192,www.usbank.com,Usbank,67,25,11.3,14,0,NOT_ENRICHED,,False,LOW
+193,www.koreatimes.co.kr,Koreatimes,67,17,12.8,6,0,NOT_ENRICHED,,False,LOW
+194,udaipurkiran.com,Udaipurkiran,67,15,37.4,1,0,Udaipurkiran,,False,LOW
+195,www.theclearinghouse.org,Theclearinghouse,67,13,3.3,4,0,NOT_ENRICHED,,False,LOW
+196,www.ncino.com,Ncino,66,19,4.6,8,0,NOT_ENRICHED,,False,LOW
+197,www.fxcintel.com,Fxcintel,66,15,5.5,2,0,NOT_ENRICHED,,False,LOW
+198,www.computerweekly.com,Computerweekly,66,13,12.0,4,0,NOT_ENRICHED,,False,LOW
+199,www.q2.com,Q2,65,22,5.4,2,0,NOT_ENRICHED,,False,LOW
+200,www.thestreet.com,Thestreet,65,19,29.6,6,0,NOT_ENRICHED,,False,LOW
+201,dailycoin.com,Dailycoin,65,13,11.0,5,0,DailyCoin,Internet,False,LOW
+202,www.devdiscourse.com,Devdiscourse,64,27,32.3,14,0,NOT_ENRICHED,,False,LOW
+203,www.myjoyonline.com,Myjoyonline,64,18,32.5,8,0,NOT_ENRICHED,,False,LOW
+204,www.coindesk.com,Coindesk,64,13,17.3,8,0,NOT_ENRICHED,,False,LOW
+205,www.aciworldwide.com,Aciworldwide,63,20,4.5,12,0,NOT_ENRICHED,,False,LOW
+206,www.backbase.com,Backbase,63,20,4.8,6,0,NOT_ENRICHED,,False,LOW
+207,www.billionaires.africa,Billionaires,63,15,37.0,2,0,NOT_ENRICHED,,False,LOW
+208,farmonaut.com,Farmonaut,63,14,15.8,14,0,Farmonaut,Farming,False,LOW
+209,www.csiweb.com,Csiweb,62,52,7.0,12,0,NOT_ENRICHED,,False,LOW
+210,enmobile.prnasia.com,Enmobile,62,22,5.5,1,0,CStone Pharmaceuticals,Pharmaceuticals,False,LOW
+211,www.salesforce.com,Salesforce,62,22,6.5,6,0,NOT_ENRICHED,,True,HIGH
+212,thebftonline.com,Thebftonline,62,17,32.2,8,0,Business & Financial Times,Media Production,False,LOW
+213,techeconomy.ng,Techeconomy,62,15,22.0,6,0,Techeconomy,Online Media,False,LOW
+214,www.itnews.com.au,Itnews,62,15,22.5,3,0,NOT_ENRICHED,,False,LOW
+215,www.dhakatribune.com,Dhakatribune,62,15,29.4,11,0,NOT_ENRICHED,,False,LOW
+216,gocardless.com,Gocardless,61,27,4.9,14,0,GoCardless,Information Technology And Services,False,LOW
+217,frappe.io,Frappe,61,21,4.8,1,0,Frappe,Computer Software,False,LOW
+218,www.globalgovernmentfintech.com,Globalgovernmentfintech,61,19,6.5,4,0,NOT_ENRICHED,,False,LOW
+219,www.financialexpress.com,Financialexpress,60,16,26.2,7,0,NOT_ENRICHED,,False,LOW
+220,www.gbm.hsbc.com,Gbm,59,25,4.5,9,0,NOT_ENRICHED,,False,LOW
+221,gulfbusiness.com,Gulfbusiness,59,14,16.0,5,0,Gulf Business,Online Media,False,LOW
+222,www.cpapracticeadvisor.com,Cpapracticeadvisor,59,13,10.9,5,0,NOT_ENRICHED,,False,LOW
+223,iongroup.com,Iongroup,58,31,5.8,13,0,ION,Information Technology And Services,False,LOW
+224,worldline.com,Worldline,58,17,7.2,8,0,Worldline Argentina S.A.,,False,LOW
+225,www.nationalmortgagenews.com,Nationalmortgagenews,58,13,13.3,4,0,NOT_ENRICHED,,False,LOW
+226,www.axios.com,Axios,58,13,13.5,5,0,NOT_ENRICHED,,False,LOW
+227,www.digitaltransactions.net,Digitaltransactions,58,13,14.3,7,0,NOT_ENRICHED,,False,LOW
+228,techpoint.africa,Techpoint,58,12,20.9,5,0,Techpoint,,False,LOW
+229,www.badcredit.org,Badcredit,58,7,34.3,5,0,NOT_ENRICHED,,False,LOW
+230,www.euromoney.com,Euromoney,57,15,4.6,2,0,NOT_ENRICHED,,True,HIGH
+231,techbullion.com,Techbullion,57,15,35.2,7,0,TechBullion,Online Media,False,LOW
+232,www.insightaceanalytic.com,Insightaceanalytic,56,17,6.9,2,0,NOT_ENRICHED,,False,LOW
+233,www.techcircle.in,Techcircle,56,16,30.7,3,0,NOT_ENRICHED,,False,LOW
+234,www.investmentnews.com,Investmentnews,56,14,13.0,3,0,NOT_ENRICHED,,False,LOW
+235,www.scmp.com,Scmp,56,14,21.5,10,0,NOT_ENRICHED,,False,LOW
+236,en.cryptonomist.ch,En,56,14,38.3,4,0,The Cryptonomist,Newspapers,False,LOW
+237,www.simplilearn.com,Simplilearn,56,11,27.9,6,0,NOT_ENRICHED,,False,LOW
+238,hesfintech.com,Hesfintech,55,27,6.6,13,0,Hesfintech,,False,LOW
+239,dashdevs.com,Dashdevs,55,23,6.1,6,0,DashDevs LLC,Government Administration,False,LOW
+240,www.atmmarketplace.com,Atmmarketplace,55,18,17.1,5,0,NOT_ENRICHED,,False,LOW
+241,www.hitachi.com,Hitachi,55,12,10.5,3,0,NOT_ENRICHED,,False,LOW
+242,www.theblock.co,Theblock,55,12,12.8,6,0,NOT_ENRICHED,,False,LOW
+243,www.pcmag.com,Pcmag,55,12,23.3,4,0,NOT_ENRICHED,,False,LOW
+244,mortgagetech.ice.com,Mortgagetech,54,30,6.1,7,0,Intercontinental Exchange Inc.,Financial Services,False,LOW
+245,fox5sandiego.com,Fox5Sandiego,54,25,27.3,13,0,FOX 5 San Diego,Broadcast Media,False,LOW
+246,thekanal.in,Thekanal,54,12,28.9,5,0,Thekanal,,False,LOW
+247,www.theasianbanker.com,Theasianbanker,54,9,17.1,5,0,NOT_ENRICHED,,False,LOW
+248,www.streetinsider.com,Streetinsider,53,22,23.7,12,0,NOT_ENRICHED,,False,LOW
+249,www.creditonline.eu,Creditonline,53,17,6.8,2,0,NOT_ENRICHED,,False,LOW
+250,coingeek.com,Coingeek,53,16,13.8,5,0,CoinGeek,Online Media,False,LOW
+251,www.financierworldwide.com,Financierworldwide,53,14,10.1,3,0,NOT_ENRICHED,,False,LOW
+252,www.thisdaylive.com,Thisdaylive,53,13,32.4,10,0,NOT_ENRICHED,,False,LOW
+253,brandspurng.com,Brandspurng,53,13,35.5,2,0,Brand Spur Nigeria,Online Media,False,LOW
+254,www.itweb.co.za,Itweb,53,11,27.9,4,0,NOT_ENRICHED,,False,LOW
+255,www.wjbf.com,Wjbf,52,29,16.0,13,0,NOT_ENRICHED,,False,LOW
+256,www.financemagnates.com,Financemagnates,52,15,12.9,5,0,NOT_ENRICHED,,False,LOW
+257,dailynews.co.tz,Dailynews,52,15,26.1,4,0,Dailynews,,False,LOW
+258,etedge-insights.com,Etedge-Insights,52,13,21.3,4,0,ET Edge Insights,Publishing,False,LOW
+259,explodingtopics.com,Explodingtopics,52,13,28.7,1,0,Exploding Topics,Computer Software,False,LOW
+260,www.cuinsight.com,Cuinsight,52,12,15.2,5,0,NOT_ENRICHED,,False,LOW
+261,www.turnkey-lender.com,Turnkey-Lender,51,22,5.9,4,0,NOT_ENRICHED,,False,LOW
+262,www.alogent.com,Alogent,51,17,4.8,6,0,NOT_ENRICHED,,False,LOW
+263,theinvestor.vn,Theinvestor,51,14,11.7,6,0,Theinvestor,,False,LOW
+264,www.bankinfosecurity.com,Bankinfosecurity,51,8,11.6,5,0,NOT_ENRICHED,,False,LOW
+265,fox2now.com,Fox2Now,50,21,24.1,15,0,KTVI FOX 2,Telecommunications,False,LOW
+266,www.centime.com,Centime,50,19,6.4,1,0,NOT_ENRICHED,,False,LOW
+267,fxnewsgroup.com,Fxnewsgroup,50,16,15.5,7,0,FX News Group,Information Technology And Services,False,LOW
+268,www.tomsguide.com,Tomsguide,50,15,30.6,4,0,NOT_ENRICHED,,False,LOW
+269,vir.com.vn,Vir,50,14,10.3,8,0,Vietnam Investment Review,Newspapers,False,LOW
+270,www.newagebd.net,Newagebd,50,14,24.3,6,0,NOT_ENRICHED,,False,LOW
+271,www.pib.gov.in,Pib,50,13,22.9,1,0,NOT_ENRICHED,,False,LOW
+272,tribuneonlineng.com,Tribuneonlineng,50,13,36.9,6,0,NIGERIAN TRIBUNE,Newspapers,False,LOW
+273,www.aseanbriefing.com,Aseanbriefing,50,12,10.3,1,0,NOT_ENRICHED,,False,LOW
+274,www.thehindubusinessline.com,Thehindubusinessline,50,12,29.5,6,0,NOT_ENRICHED,,False,LOW
+275,news.ssbcrack.com,News,50,12,38.2,4,0,SSBCrack,E-Learning,False,LOW
+276,brandfinance.com,Brandfinance,50,10,4.9,1,0,NOT_ENRICHED,,False,LOW
+277,www.abc4.com,Abc4,49,36,19.4,11,0,NOT_ENRICHED,,False,LOW
+278,advapay.eu,Advapay,49,17,5.9,4,0,Advapay,Information Technology And Services,False,LOW
+279,www.yourwyominglink.com,Yourwyominglink,49,17,17.1,2,0,NOT_ENRICHED,,False,LOW
+280,en.nhandan.vn,En,49,16,14.9,2,0,Nhandan,,False,LOW
+281,techtrendske.co.ke,Techtrendske,49,15,28.2,6,0,TechTrends Media,Publishing,False,LOW
+282,www.celent.com,Celent,49,12,2.8,1,0,NOT_ENRICHED,,False,LOW
+283,www.capitalbrief.com,Capitalbrief,49,12,20.6,5,0,NOT_ENRICHED,,False,LOW
+284,www.indiancooperative.com,Indiancooperative,49,11,18.8,3,0,NOT_ENRICHED,,False,LOW
+285,inews.zoombangla.com,Inews,48,15,30.4,3,0,ZoomBangla,Information Technology And Services,False,LOW
+286,www.mortgagestrategy.co.uk,Mortgagestrategy,48,14,11.6,6,0,NOT_ENRICHED,,False,LOW
+287,bfsi.eletsonline.com,Bfsi,48,13,23.2,4,0,Elets Technomedia,Media Production,False,LOW
+288,www.globalpaymentsintegrated.com,Globalpaymentsintegrated,48,11,5.2,2,0,NOT_ENRICHED,,False,LOW
+289,coincodex.com,Coincodex,48,11,37.7,2,0,NOT_ENRICHED,,False,LOW
+290,worldbusinessoutlook.com,Worldbusinessoutlook,47,16,5.9,3,0,World Business Outlook,Publishing,False,LOW
+291,www.theglobaltreasurer.com,Theglobaltreasurer,47,16,12.1,7,0,NOT_ENRICHED,,False,LOW
+292,www.nasdaq.com,Nasdaq,47,14,21.1,14,0,NOT_ENRICHED,,False,LOW
+293,www.analyticsinsight.net,Analyticsinsight,47,14,38.4,4,0,NOT_ENRICHED,,False,LOW
+294,www.interpressnews.ge,Interpressnews,47,12,28.1,1,0,NOT_ENRICHED,,False,LOW
+295,www.santander.com,Santander,47,7,6.6,4,0,NOT_ENRICHED,,False,LOW
+296,timvero.com,Timvero,46,17,7.6,2,0,TIMVERO,Computer Software,False,LOW
+297,www.newsghana.com.gh,Newsghana,46,17,34.9,6,0,NOT_ENRICHED,,False,LOW
+298,europeanbusinessmagazine.com,Europeanbusinessmagazine,46,16,15.8,6,0,European Business Magazine,Newspapers,False,LOW
+299,tech.eu,Tech,46,13,13.2,5,0,SportSetter - ACQUIRED,"Health, Wellness And Fitness",False,LOW
+300,konexionetwork.com,Konexionetwork,46,13,28.5,3,0,Konexio Network,Media Production,False,LOW
+301,www.ft.com,Ft,46,12,15.6,9,0,NOT_ENRICHED,,False,LOW
+302,eu.36kr.com,Eu,46,10,4.3,2,0,36Kr Holdings Inc.,Information Technology And Services,False,LOW
+303,bmmagazine.co.uk,Bmmagazine,46,10,40.1,3,0,NOT_ENRICHED,,False,LOW
+304,www.barrons.com,Barrons,46,9,17.8,4,0,NOT_ENRICHED,,False,LOW
+305,tipalti.com,Tipalti,45,19,5.4,11,0,Tipalti,Government Administration,False,LOW
+306,cloud.google.com,Cloud,45,14,5.0,7,0,Trikl,Financial Services,True,HIGH
+307,finance.coin-turk.com,Finance,45,10,32.0,4,0,CoinTürk,Broadcast Media,False,LOW
+308,www.finance-monthly.com,Finance-Monthly,44,13,29.1,3,0,NOT_ENRICHED,,False,LOW
+309,www.spokanejournal.com,Spokanejournal,44,11,13.9,1,0,NOT_ENRICHED,,False,LOW
+310,www.technologydecisions.com.au,Technologydecisions,44,11,22.6,1,0,NOT_ENRICHED,,False,LOW
+311,blockchainreporter.net,Blockchainreporter,44,10,23.0,8,0,BlockchainReporter,Broadcast Media,False,LOW
+312,www.thenational.com.pg,Thenational,44,10,25.2,1,0,NOT_ENRICHED,,False,LOW
+313,www.fool.com,Fool,44,10,27.9,6,0,NOT_ENRICHED,,False,LOW
+314,kuwaittimes.com,Kuwaittimes,44,9,25.3,4,0,Kuwaittimes,,False,LOW
+315,www.benzinga.com,Benzinga,44,8,25.4,8,0,NOT_ENRICHED,,False,LOW
+316,tuum.com,Tuum,43,15,6.6,4,0,Tuum,,False,LOW
+317,www.lseg.com,Lseg,43,15,8.2,7,0,NOT_ENRICHED,,False,LOW
+318,www.moroccoworldnews.com,Moroccoworldnews,43,11,16.7,4,0,NOT_ENRICHED,,False,LOW
+319,www.business-live.co.uk,Business-Live,43,11,17.4,5,0,NOT_ENRICHED,,False,LOW
+320,sg.finance.yahoo.com,Sg,43,11,20.2,7,0,Richardson Studio,Arts And Crafts,False,LOW
+321,www.informalnewz.com,Informalnewz,43,11,39.0,1,0,NOT_ENRICHED,,False,LOW
+322,siliconangle.com,Siliconangle,43,10,15.8,6,0,SiliconANGLE & TheCUBE,Online Media,False,LOW
+323,mexicobusiness.news,Mexicobusiness,43,10,18.5,6,0,NOT_ENRICHED,,False,LOW
+324,www.timesbull.com,Timesbull,43,9,35.9,5,0,NOT_ENRICHED,,False,LOW
+325,find-and-update.company-information.service.gov.uk,Find-And-Update,42,23,5.2,20,0,National Careers Service North East & Cumbria,Government Administration,False,LOW
+326,ncua.gov,Ncua,42,10,12.8,3,0,National Credit Union Administration,Financial Services,False,LOW
+327,www.uswitch.com,Uswitch,42,10,14.6,1,0,NOT_ENRICHED,,False,LOW
+328,mashdigi.com,Mashdigi,42,9,15.0,5,0,Mashdigi,,False,LOW
+329,www.ezbob.com,Ezbob,41,21,5.4,7,0,NOT_ENRICHED,,False,LOW
+330,www.citybuzz.co,Citybuzz,41,13,18.4,2,0,NOT_ENRICHED,,False,LOW
+331,www.altcoinbuzz.io,Altcoinbuzz,41,10,25.8,1,0,NOT_ENRICHED,,False,LOW
+332,www.insurancebusinessmag.com,Insurancebusinessmag,41,9,23.1,9,0,NOT_ENRICHED,,False,LOW
+333,apacnewsnetwork.com,Apacnewsnetwork,41,8,30.3,4,0,NOT_ENRICHED,,False,LOW
+334,blend.com,Blend,40,23,5.8,2,0,Blend,Information Technology And Services,False,LOW
+335,www.livebitcoinnews.com,Livebitcoinnews,40,12,28.0,8,0,NOT_ENRICHED,,False,LOW
+336,www.bizzbuzz.news,Bizzbuzz,40,11,33.6,5,0,NOT_ENRICHED,,False,LOW
+337,www.okx.com,Okx,40,9,25.1,4,0,NOT_ENRICHED,,False,LOW
+338,www.finacle.com,Finacle,39,19,5.5,9,0,NOT_ENRICHED,,False,LOW
+339,www.highradius.com,Highradius,39,19,7.1,13,0,NOT_ENRICHED,,False,LOW
+340,www.wric.com,Wric,39,18,23.5,13,0,NOT_ENRICHED,,False,LOW
+341,aws.amazon.com,Aws,39,12,9.6,6,0,Merch By Amazon,Manufacturing,True,HIGH
+342,thefinancialexpress.com.bd,Thefinancialexpress,39,10,22.6,7,0,The Financial Express,Newspapers,False,LOW
+343,www.convergence-now.com,Convergence-Now,39,9,17.7,1,0,NOT_ENRICHED,,False,LOW
+344,www.brokernews.com.au,Brokernews,39,8,14.7,2,0,NOT_ENRICHED,,False,LOW
+345,coinmarketcap.com,Coinmarketcap,39,5,18.6,6,0,Terra Luna Classic,Financial Services,False,LOW
+346,www.securitiesfinancetimes.com,Securitiesfinancetimes,38,12,5.0,5,0,NOT_ENRICHED,,False,LOW
+347,blockonomi.com,Blockonomi,38,12,29.9,7,0,Blockonomi,Information Technology And Services,False,LOW
+348,aimagazine.com,Aimagazine,38,10,8.1,1,0,NOT_ENRICHED,,False,LOW
+349,thecurrencyanalytics.com,Thecurrencyanalytics,38,10,38.1,7,0,The Currency Analytics,Financial Services,False,LOW
+350,www.tax.ny.gov,Tax,38,9,11.3,1,0,NOT_ENRICHED,,False,LOW
+351,mybroadband.co.za,Mybroadband,38,9,30.0,2,0,MyBroadband,Online Media,False,LOW
+352,bilyonaryo.com,Bilyonaryo,38,9,33.9,2,0,NOT_ENRICHED,,False,LOW
+353,www.cobase.com,Cobase,37,16,6.0,5,0,NOT_ENRICHED,,False,LOW
+354,www.citybiz.co,Citybiz,37,12,16.0,7,0,NOT_ENRICHED,,False,LOW
+355,www.jdsupra.com,Jdsupra,37,10,9.0,5,0,NOT_ENRICHED,,False,LOW
+356,tech-ish.com,Tech-Ish,37,10,33.0,3,0,Techish,Information Technology And Services,False,LOW
+357,siliconcanals.com,Siliconcanals,37,9,8.4,3,0,Siliconcanals,,False,LOW
+358,www.expresscomputer.in,Expresscomputer,37,9,17.2,4,0,NOT_ENRICHED,,False,LOW
+359,www.fintech.ca,Fintech,37,9,21.8,4,0,NOT_ENRICHED,,False,LOW
+360,gadget.co.za,Gadget,37,9,30.6,1,0,Gadget,,False,LOW
+361,www.theasset.com,Theasset,37,8,14.1,5,0,NOT_ENRICHED,,False,LOW
+362,news.sky.com,News,37,8,22.7,9,0,Sky,,False,LOW
+363,www.alkami.com,Alkami,36,17,5.2,6,0,NOT_ENRICHED,,False,LOW
+364,www.editorji.com,Editorji,36,16,19.3,4,0,NOT_ENRICHED,,False,LOW
+365,corporates.db.com,Corporates,36,15,4.3,9,0,NOT_ENRICHED,,False,LOW
+366,www.payoneer.com,Payoneer,36,14,6.2,2,0,NOT_ENRICHED,,False,LOW
+367,www.bignewsnetwork.com,Bignewsnetwork,36,13,34.6,13,0,NOT_ENRICHED,,False,LOW
+368,www.simplybusiness.co.uk,Simplybusiness,36,9,9.9,1,0,NOT_ENRICHED,,False,LOW
+369,www.mortgagenewsdaily.com,Mortgagenewsdaily,36,9,15.1,3,0,NOT_ENRICHED,,False,LOW
+370,www.marketwatch.com,Marketwatch,36,9,18.1,8,0,NOT_ENRICHED,,False,LOW
+371,techcabal.com,Techcabal,36,8,30.1,6,0,TechCabal,Media Production,False,LOW
+372,www.ndtvprofit.com,Ndtvprofit,36,8,31.0,3,0,NOT_ENRICHED,,False,LOW
+373,innovation-village.com,Innovation-Village,36,8,33.9,1,0,Innovation Village Nigeria,Online Media,False,LOW
+374,www.theregister.com,Theregister,36,6,22.4,6,0,NOT_ENRICHED,,False,LOW
+375,www.koreaherald.com,Koreaherald,35,17,12.9,3,0,NOT_ENRICHED,,False,LOW
+376,www.argaam.com,Argaam,35,13,19.1,8,0,NOT_ENRICHED,,False,LOW
+377,in.investing.com,In,35,13,26.9,8,0,RTI INTERNATIONAL METALS LIMITED,Manufacturing,False,LOW
+378,beincrypto.com,Beincrypto,35,10,19.4,6,0,BeInCrypto,Publishing,False,LOW
+379,www.techinasia.com,Techinasia,35,10,22.0,8,0,NOT_ENRICHED,,False,LOW
+380,www.livemint.com,Livemint,35,9,25.1,5,0,NOT_ENRICHED,,False,LOW
+381,smestreet.in,Smestreet,35,9,31.1,3,0,SMEStreet,Media Production,False,LOW
+382,www.citigroup.com,Citigroup,35,8,6.2,13,0,NOT_ENRICHED,,False,LOW
+383,www.accountantsdaily.com.au,Accountantsdaily,35,8,16.3,1,0,NOT_ENRICHED,,False,LOW
+384,finovate.com,Finovate,35,7,4.9,2,0,FINOVATE LIMITED,,False,LOW
+385,omaha.com,Omaha,35,7,13.3,1,0,Omaha World-Herald,Online Media,False,LOW
+386,biz.chosun.com,Biz,35,7,32.3,9,0,조선일보,Newspapers,False,LOW
+387,www.gamblinginsider.com,Gamblinginsider,35,6,16.6,3,0,NOT_ENRICHED,,False,LOW
+388,plaid.com,Plaid,34,13,3.9,6,0,Plaid,Financial Services,False,LOW
+389,www.openbanking.org.uk,Openbanking,34,11,4.7,9,0,NOT_ENRICHED,,False,LOW
+390,www.bakerhill.com,Bakerhill,34,10,7.3,3,0,NOT_ENRICHED,,False,LOW
+391,indianpsu.com,Indianpsu,34,10,30.5,3,0,Indian PSU,Online Media,False,LOW
+392,www.visualsp.com,Visualsp,34,9,3.2,1,0,NOT_ENRICHED,,False,LOW
+393,www.precedenceresearch.com,Precedenceresearch,34,9,7.5,6,0,NOT_ENRICHED,,False,LOW
+394,www.bnamericas.com,Bnamericas,34,8,17.9,2,0,NOT_ENRICHED,,False,LOW
+395,bcbusiness.ca,Bcbusiness,34,8,25.3,1,0,BCBusiness,Media Production,False,LOW
+396,decrypt.co,Decrypt,34,5,22.3,7,0,Decrypt,Internet,False,LOW
+397,cbs4indy.com,Cbs4Indy,33,19,32.1,11,0,WTTV-TV,Broadcast Media,False,LOW
+398,www.cgi.com,Cgi,33,16,6.9,5,0,NOT_ENRICHED,,False,LOW
+399,fox59.com,Fox59,33,14,33.9,10,0,Varian Medical Systems,Hospital & Health Care,False,LOW
+400,www.insidermonkey.com,Insidermonkey,33,12,35.8,7,0,NOT_ENRICHED,,True,HIGH
+401,www.shopify.com,Shopify,33,10,19.3,10,0,NOT_ENRICHED,,False,LOW
+402,thetradable.com,Thetradable,33,10,28.5,3,0,Thetradable,,False,LOW
+403,thenationonlineng.net,Thenationonlineng,33,10,37.7,4,0,The Nation Nigeria,Newspapers,False,LOW
+404,retailtechinnovationhub.com,Retailtechinnovationhub,33,8,14.5,3,0,Retail Technology Innovation Hub,Retail,False,LOW
+405,www.sb.by,Sb,33,7,21.9,2,0,NOT_ENRICHED,,False,LOW
+406,allafrica.com,Allafrica,33,7,29.4,2,0,AllAfrica Global Media,Online Media,False,LOW
+407,technode.global,Technode,33,6,11.3,2,0,Technode,,False,LOW
+408,www.brecorder.com,Brecorder,33,6,21.8,5,0,NOT_ENRICHED,,False,LOW
+409,www.commerzbank.com,Commerzbank,32,32,4.8,15,0,NOT_ENRICHED,,False,LOW
+410,www.ecb.europa.eu,Ecb,32,20,4.6,10,0,NOT_ENRICHED,,False,LOW
+411,www.researchgate.net,Researchgate,32,16,9.6,10,0,NOT_ENRICHED,,False,LOW
+412,www.paypal.com,Paypal,32,11,6.0,14,0,NOT_ENRICHED,,True,HIGH
+413,en.vietnamplus.vn,En,32,10,17.1,4,0,Vietnamplus,,False,LOW
+414,investingnews.com,Investingnews,32,10,19.0,3,0,Investing News Network,Internet,False,LOW
+415,m.thewire.in,M,32,10,30.5,8,0,TheWire.in,Media Production,False,LOW
+416,www.kron4.com,Kron4,32,9,21.3,3,0,NOT_ENRICHED,,False,LOW
+417,www.gulf-times.com,Gulf-Times,32,8,35.9,3,0,NOT_ENRICHED,,False,LOW
+418,diginomica.com,Diginomica,32,7,15.0,2,0,Diginomica,Publishing,False,LOW
+419,www.ippmedia.com,Ippmedia,32,7,21.6,1,0,NOT_ENRICHED,,False,LOW
+420,dmarketforces.com,Dmarketforces,32,5,15.1,5,0,NOT_ENRICHED,,False,LOW
+421,www.worldpay.com,Worldpay,31,13,4.4,9,0,NOT_ENRICHED,,False,LOW
+422,www.checkout.com,Checkout,31,13,4.8,8,0,NOT_ENRICHED,,False,LOW
+423,www.automationanywhere.com,Automationanywhere,31,9,3.1,4,0,NOT_ENRICHED,,False,LOW
+424,laotiantimes.com,Laotiantimes,31,9,16.7,4,0,The Laotian Times,Newspapers,False,LOW
+425,www.advisory.com,Advisory,31,8,10.5,1,0,NOT_ENRICHED,,False,LOW
+426,via.ritzau.dk,Via,31,8,18.6,3,0,Ritzaus Bureau,Media Production,False,LOW
+427,www.oaktreecapital.com,Oaktreecapital,31,8,20.8,1,0,NOT_ENRICHED,,False,LOW
+428,indianexpress.com,Indianexpress,31,8,34.2,5,0,The Indian Express,Newspapers,False,LOW
+429,www.newsofbahrain.com,Newsofbahrain,31,7,26.4,2,0,NOT_ENRICHED,,False,LOW
+430,www.biometricupdate.com,Biometricupdate,31,6,20.7,6,0,NOT_ENRICHED,,False,LOW
+431,www.citibank.com,Citibank,31,5,4.3,5,0,NOT_ENRICHED,,False,LOW
+432,www.profilesw.com,Profilesw,30,13,6.4,6,0,NOT_ENRICHED,,False,LOW
+433,www.axefinance.com,Axefinance,30,12,5.9,3,0,NOT_ENRICHED,,False,LOW
+434,www.cmegroup.com,Cmegroup,30,9,9.7,3,0,NOT_ENRICHED,,False,LOW
+435,www.arabnews.com,Arabnews,30,8,18.2,5,0,NOT_ENRICHED,,False,LOW
+436,www.oliverwyman.com,Oliverwyman,30,7,3.8,6,0,NOT_ENRICHED,,False,LOW
+437,newsroom.wise.com,Newsroom,30,7,6.3,1,0,Wise,Financial Services,False,LOW
+438,www.thetradenews.com,Thetradenews,30,7,14.6,4,0,NOT_ENRICHED,,False,LOW
+439,www.koreaittimes.com,Koreaittimes,30,7,28.9,3,0,NOT_ENRICHED,,False,LOW
+440,www.innovationnewsnetwork.com,Innovationnewsnetwork,30,6,13.2,2,0,NOT_ENRICHED,,False,LOW
+441,www.mitrade.com,Mitrade,30,6,16.2,7,0,NOT_ENRICHED,,False,LOW
+442,www.thesaasnews.com,Thesaasnews,30,3,11.0,6,0,NOT_ENRICHED,,False,LOW
+443,www.nucleussoftware.com,Nucleussoftware,29,14,6.6,8,0,NOT_ENRICHED,,False,LOW
+444,www.loandisk.com,Loandisk,29,12,6.4,1,0,NOT_ENRICHED,,False,LOW
+445,www.embat.io,Embat,29,11,6.1,7,0,NOT_ENRICHED,,False,LOW
+446,bridgingandcommercial.co.uk,Bridgingandcommercial,29,8,13.5,6,0,Bridging & Commercial,Publishing,False,LOW
+447,theintermediary.co.uk,Theintermediary,29,8,19.1,6,0,Theintermediary,,False,LOW
+448,financebuzz.com,Financebuzz,29,8,31.3,7,0,FinanceBuzz,Computer Software,False,LOW
+449,hindudayashankar.com,Hindudayashankar,29,8,42.2,1,0,NOT_ENRICHED,,False,LOW
+450,sikkimexpress.com,Sikkimexpress,29,7,21.2,1,0,Sikkim Express,,False,LOW
+451,thecollegeinvestor.com,Thecollegeinvestor,29,7,30.8,1,0,NOT_ENRICHED,,False,LOW
+452,www.republicworld.com,Republicworld,29,7,31.1,4,0,NOT_ENRICHED,,False,LOW
+453,www.cryptotimes.io,Cryptotimes,29,7,37.4,4,0,NOT_ENRICHED,,False,LOW
+454,newslink.mba.org,Newslink,29,6,18.6,3,0,Mortgage Bankers Association,Banking,False,LOW
+455,onlinepaymentplatform.com,Onlinepaymentplatform,28,11,2.8,2,0,Online Payment Platform,Financial Services,False,LOW
+456,www.fundingo.com,Fundingo,28,10,7.0,10,0,NOT_ENRICHED,,False,LOW
+457,www.wamda.com,Wamda,28,8,10.6,4,0,NOT_ENRICHED,,False,LOW
+458,www.cio.com,Cio,28,8,13.6,4,0,NOT_ENRICHED,,False,LOW
+459,www.cutoday.info,Cutoday,28,7,21.8,2,0,NOT_ENRICHED,,False,LOW
+460,www.lexology.com,Lexology,28,6,10.8,4,0,NOT_ENRICHED,,False,LOW
+461,biztechmagazine.com,Biztechmagazine,28,6,12.6,3,0,Biztechmagazine,,False,LOW
+462,en.yabiladi.com,En,28,6,15.6,1,0,Yabiladi,,False,LOW
+463,www.bankofengland.co.uk,Bankofengland,27,15,3.3,13,0,NOT_ENRICHED,,False,LOW
+464,www.sciencedirect.com,Sciencedirect,27,13,7.7,6,0,NOT_ENRICHED,,False,LOW
+465,www.capgemini.com,Capgemini,27,12,6.4,14,0,NOT_ENRICHED,,False,LOW
+466,www.volt.io,Volt,27,11,4.8,2,0,NOT_ENRICHED,,False,LOW
+467,gfmag.com,Gfmag,27,11,11.2,6,0,NOT_ENRICHED,,False,LOW
+468,appsource.microsoft.com,Appsource,27,10,7.4,12,0,Microsoft Corporation,Computer Software,True,HIGH
+469,www.microsoft.com,Microsoft,27,9,15.0,6,0,NOT_ENRICHED,,True,HIGH
+470,www.mortgagesolutions.co.uk,Mortgagesolutions,27,9,17.9,6,0,NOT_ENRICHED,,False,LOW
+471,www.techradar.com,Techradar,27,9,27.7,8,0,NOT_ENRICHED,,False,LOW
+472,cm.asiae.co.kr,Cm,27,8,31.7,4,0,Asia Economy Daily Co. Ltd.,Information Technology And Services,False,LOW
+473,www.constructionworld.in,Constructionworld,27,7,32.7,3,0,NOT_ENRICHED,,False,LOW
+474,www.aninews.in,Aninews,27,7,33.7,1,0,NOT_ENRICHED,,False,LOW
+475,www.zebra.com,Zebra,27,6,4.6,3,0,NOT_ENRICHED,,False,LOW
+476,www.entrepreneur.com,Entrepreneur,27,6,21.3,2,0,NOT_ENRICHED,,False,LOW
+477,www.standardmedia.co.ke,Standardmedia,27,6,26.8,7,0,NOT_ENRICHED,,False,LOW
+478,www.dqindia.com,Dqindia,27,6,34.3,4,0,NOT_ENRICHED,,False,LOW
+479,www.pwc.de,Pwc,26,24,3.3,8,0,NOT_ENRICHED,,False,LOW
+480,www.kansascityfed.org,Kansascityfed,26,16,6.3,2,0,NOT_ENRICHED,,False,LOW
+481,www.accenture.com,Accenture,26,16,6.6,5,0,NOT_ENRICHED,,True,HIGH
+482,www.barclayscorporate.com,Barclayscorporate,26,13,5.0,4,0,NOT_ENRICHED,,False,LOW
+483,company.globalpayments.com,Company,26,11,4.5,2,0,Globalpayments,,False,LOW
+484,www.bottomline.com,Bottomline,26,11,5.8,11,0,NOT_ENRICHED,,False,LOW
+485,www.volantetech.com,Volantetech,26,11,6.7,8,0,NOT_ENRICHED,,False,LOW
+486,blockchain.news,Blockchain,26,11,38.4,8,0,Blockchain.News,Online Media,False,LOW
+487,www.creatio.com,Creatio,26,9,4.7,2,0,NOT_ENRICHED,,False,LOW
+488,www.inkl.com,Inkl,26,9,26.0,8,0,NOT_ENRICHED,,False,LOW
+489,www.vietinbank.vn,Vietinbank,26,7,13.0,2,0,NOT_ENRICHED,,False,LOW
+490,barlamantoday.com,Barlamantoday,26,7,17.8,1,0,NOT_ENRICHED,,False,LOW
+491,backendnews.net,Backendnews,26,7,21.7,1,0,Back End News,Internet,False,LOW
+492,www.brandtimes.com.ng,Brandtimes,26,7,36.6,3,0,NOT_ENRICHED,,False,LOW
+493,www.treasuryandrisk.com,Treasuryandrisk,26,6,11.1,2,0,NOT_ENRICHED,,False,LOW
+494,crypto-economy.com,Crypto-Economy,26,6,15.7,4,0,Crypto Economy,Newspapers,False,LOW
+495,www.cnbctv18.com,Cnbctv18,26,6,27.0,6,0,NOT_ENRICHED,,False,LOW
+496,www.cloudwards.net,Cloudwards,26,1,24.9,8,0,NOT_ENRICHED,,False,LOW
+497,www.easternprogress.com,Easternprogress,25,10,15.7,5,0,NOT_ENRICHED,,False,LOW
+498,www.theweek.in,Theweek,25,9,19.4,1,0,NOT_ENRICHED,,False,LOW
+499,equipmentfinancenews.com,Equipmentfinancenews,25,9,20.7,3,0,Equipmentfinancenews,,False,LOW
+500,www.ptinews.com,Ptinews,25,8,21.4,4,0,NOT_ENRICHED,,False,LOW

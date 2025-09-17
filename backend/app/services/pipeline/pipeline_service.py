@@ -53,6 +53,8 @@ class PipelinePhase(str, Enum):
     CONTENT_SCRAPING = "content_scraping"
     CONTENT_ANALYSIS = "content_analysis"
     DSI_CALCULATION = "dsi_calculation"
+    HISTORICAL_SNAPSHOT = "historical_snapshot"
+    LANDSCAPE_DSI_CALCULATION = "landscape_dsi_calculation"
 
 
 class PipelineStatus(str, Enum):

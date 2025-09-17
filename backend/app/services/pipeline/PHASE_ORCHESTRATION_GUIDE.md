@@ -147,11 +147,11 @@ async def _execute_keyword_metrics_enrichment_phase(self, context: Dict) -> Dict
 
 ## Phase Dependencies
 
-The default phase dependencies are:
+The default phase dependencies are (strictly enforced):
 
 1. **keyword_metrics** → (no dependencies)
 2. **serp_collection** → keyword_metrics
-3. **company_enrichment_serp** → serp_collection
+3. **company_enrichment_serp** → serp_collection (must have stored SERP results)
 4. **youtube_enrichment** → serp_collection  
 5. **content_scraping** → serp_collection
 6. **company_enrichment_youtube** → youtube_enrichment, company_enrichment_serp

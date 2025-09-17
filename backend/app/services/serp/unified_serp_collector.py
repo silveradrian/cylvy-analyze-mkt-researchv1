@@ -7,10 +7,11 @@ import httpx
 import asyncio
 import os
 from typing import Dict, List, Any, Optional, Callable
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
 import json
 from urllib.parse import urlparse
 from loguru import logger
+import re
 
 from app.core.config import settings as get_settings, Settings
 from app.models.serp import SERPType
@@ -93,7 +94,10 @@ class UnifiedSERPCollector:
         # Extract parameters with defaults
         location = kwargs.get('location', 'United States')
         device = kwargs.get('device', 'desktop')
-        num_results = kwargs.get('num_results', 50)
+        # Enforce per-type caps to avoid gigantic result sets
+        max_per_type = getattr(self.settings, 'SERP_MAX_RESULTS_PER_TYPE', 50)
+        requested = kwargs.get('num_results', max_per_type)
+        num_results = min(int(requested), int(max_per_type))
         gl = kwargs.get('gl', 'us')
         hl = kwargs.get('hl', 'en')
         
@@ -332,7 +336,11 @@ class UnifiedSERPCollector:
             return ""
         try:
             parsed = urlparse(url)
-            return parsed.netloc
+            domain = parsed.netloc
+            # Clean domain - remove www. prefix
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            return domain.lower()
         except:
             return ""
     
@@ -767,6 +775,43 @@ class UnifiedSERPCollector:
                     from app.core.database import db_pool
                     async with db_pool.acquire() as conn:
                         row_count = 0
+
+                        def _safe_int(value: Any) -> Optional[int]:
+                            try:
+                                if value is None:
+                                    return None
+                                if isinstance(value, int):
+                                    return value
+                                s = str(value).strip()
+                                if s == "":
+                                    return None
+                                return int(float(s))
+                            except Exception:
+                                return None
+
+                        def _parse_relative_date(text: str) -> Optional[datetime]:
+                            if not text or not isinstance(text, str):
+                                return None
+                            # Patterns like '2 days ago', '11 hours ago', '1 day ago'
+                            m = re.match(r"^(\d+)\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)\s+ago$", text.strip(), re.IGNORECASE)
+                            if not m:
+                                return None
+                            qty = int(m.group(1))
+                            unit = m.group(2).lower()
+                            now = datetime.now(timezone.utc)
+                            if unit.startswith('minute'):
+                                return now - timedelta(minutes=qty)
+                            if unit.startswith('hour'):
+                                return now - timedelta(hours=qty)
+                            if unit.startswith('day'):
+                                return now - timedelta(days=qty)
+                            if unit.startswith('week'):
+                                return now - timedelta(weeks=qty)
+                            if unit.startswith('month'):
+                                return now - timedelta(days=qty * 30)
+                            if unit.startswith('year'):
+                                return now - timedelta(days=qty * 365)
+                            return None
                         for row in csv_reader:
                             row_count += 1
                             try:
@@ -812,6 +857,31 @@ class UnifiedSERPCollector:
                                     if 'youtube.com' in url or 'youtu.be' in url:
                                         video_urls.append(url)
                                 
+                                # Prepare typed fields with normalization
+                                # Position
+                                raw_position = row.get(f'result.{content_type}_results.position', row.get('position', None))
+                                position_val = _safe_int(raw_position)
+
+                                # Published date: handle absolute or relative strings (always make UTC-aware)
+                                raw_published = row.get(f'result.{content_type}_results.date', row.get('date', None))
+                                published_dt: Optional[datetime] = None
+                                if raw_published:
+                                    # Try relative first
+                                    published_dt = _parse_relative_date(str(raw_published))
+                                    if not published_dt:
+                                        try:
+                                            from dateutil import parser as dtparser
+                                            parsed = dtparser.parse(str(raw_published))
+                                            if parsed.tzinfo is None:
+                                                published_dt = parsed.replace(tzinfo=timezone.utc)
+                                            else:
+                                                published_dt = parsed.astimezone(timezone.utc)
+                                        except Exception:
+                                            published_dt = None
+
+                                # total_results numeric
+                                total_results_val = _safe_int(row.get('total_results', None))
+
                                 # Store SERP result in database
                                 await conn.execute(
                                     """
@@ -822,22 +892,22 @@ class UnifiedSERPCollector:
                                         device, google_domain, language_code, time_period,
                                         news_type, query_displayed, time_taken_displayed,
                                         pipeline_execution_id
-                                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                                    ) VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11::date, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
                                     ON CONFLICT (keyword_id, location, serp_type, url, search_date) DO NOTHING
                                     """,
                                     keyword_id,  # keyword_id
-                                    datetime.now(),  # search_date
+                                    date.today(),  # search_date as DATE
                                     row.get('gl', row.get('location', 'US')),  # location
                                     content_type,  # serp_type
-                                    int(row.get(f'result.{content_type}_results.position', row.get('position', 0))),  # position
+                                    position_val,  # position
                                     url,  # url
                                     row.get(f'result.{content_type}_results.title', row.get('title', '')),  # title
                                     row.get(f'result.{content_type}_results.snippet', row.get('snippet', '')),  # snippet
                                     domain,  # domain
                                     row.get(f'result.{content_type}_results.source', row.get('source', '')),  # source
-                                    row.get(f'result.{content_type}_results.date', row.get('date', None)),  # published_date
+                                    (published_dt.date() if isinstance(published_dt, datetime) else published_dt),  # published_date as DATE
                                     row.get('video_length', None),  # video_length
-                                    int(row.get('total_results', 0)) if row.get('total_results') else None,  # total_results
+                                    total_results_val,  # total_results
                                     row.get('device', 'desktop'),  # device
                                     row.get('google_domain', 'google.com'),  # google_domain
                                     row.get('hl', 'en'),  # language_code
@@ -1098,24 +1168,55 @@ class UnifiedSERPCollector:
                     
                 searches.append(search_params)
             
-            # Update batch with searches
-            logger.info(f"🔧 CORRECT API: PUT /batches/{batch_id} with {len(searches)} searches")
-            update_response = await self.client.put(
-                f"{self.batch_base_url}/{batch_id}",
-                params={"api_key": self.api_key},
-                json={"searches": searches}
-            )
-            logger.info(f"🔧 Batch update response: {update_response.status_code}")
-            update_response.raise_for_status()
+            # Update batch with searches - Scale SERP has a limit of 1000 searches per request
+            SCALE_SERP_CHUNK_SIZE = 1000
+            total_searches_added = 0
             
-            logger.info(f"✅ Successfully added {len(searches)} searches to batch {batch_id}")
-            update_data = update_response.json()
-            logger.info(f"🔧 PUT Response debug: {update_data}")
-            
-            # Verify searches were added
-            if 'batch' in update_data:
-                actual_count = update_data['batch'].get('searches_total_count', 0)
-                logger.info(f"✅ Batch update complete: {actual_count} searches in batch {batch_id}")
+            # Chunk searches if necessary
+            if len(searches) > SCALE_SERP_CHUNK_SIZE:
+                logger.info(f"🔧 Chunking {len(searches)} searches into batches of {SCALE_SERP_CHUNK_SIZE}")
+                
+                for i in range(0, len(searches), SCALE_SERP_CHUNK_SIZE):
+                    chunk = searches[i:i + SCALE_SERP_CHUNK_SIZE]
+                    logger.info(f"🔧 Adding chunk {i//SCALE_SERP_CHUNK_SIZE + 1}: {len(chunk)} searches")
+                    
+                    update_response = await self.client.put(
+                        f"{self.batch_base_url}/{batch_id}",
+                        params={"api_key": self.api_key},
+                        json={"searches": chunk}
+                    )
+                    
+                    if update_response.status_code != 200:
+                        error_content = update_response.text
+                        logger.error(f"🔧 Batch update error response: {error_content}")
+                        update_response.raise_for_status()
+                    
+                    total_searches_added += len(chunk)
+                    logger.info(f"✅ Added chunk successfully. Total so far: {total_searches_added}")
+                
+                logger.info(f"✅ Successfully added all {total_searches_added} searches to batch {batch_id}")
+            else:
+                # Single request for small batches
+                logger.info(f"🔧 CORRECT API: PUT /batches/{batch_id} with {len(searches)} searches")
+                update_response = await self.client.put(
+                    f"{self.batch_base_url}/{batch_id}",
+                    params={"api_key": self.api_key},
+                    json={"searches": searches}
+                )
+                logger.info(f"🔧 Batch update response: {update_response.status_code}")
+                if update_response.status_code != 200:
+                    error_content = update_response.text
+                    logger.error(f"🔧 Batch update error response: {error_content}")
+                update_response.raise_for_status()
+                
+                logger.info(f"✅ Successfully added {len(searches)} searches to batch {batch_id}")
+                update_data = update_response.json()
+                logger.info(f"🔧 PUT Response debug: {update_data}")
+                
+                # Verify searches were added
+                if 'batch' in update_data:
+                    actual_count = update_data['batch'].get('searches_total_count', 0)
+                    logger.info(f"✅ Batch update complete: {actual_count} searches in batch {batch_id}")
             
             return batch_id
             
@@ -1428,7 +1529,13 @@ class UnifiedSERPCollector:
                                 
                                 # Use batch ended_at date if available
                                 if batch_ended_at:
-                                    search_date = datetime.fromisoformat(batch_ended_at.replace('Z', '+00:00')).date()
+                                    # Ensure UTC-aware then convert to date
+                                    dt = datetime.fromisoformat(batch_ended_at.replace('Z', '+00:00'))
+                                    if dt.tzinfo is None:
+                                        dt = dt.replace(tzinfo=timezone.utc)
+                                    else:
+                                        dt = dt.astimezone(timezone.utc)
+                                    search_date = dt.date()
                                 else:
                                     search_date = date.today()
                                 
@@ -1437,7 +1544,11 @@ class UnifiedSERPCollector:
                                 if serp_result.get('date'):
                                     try:
                                         from dateutil import parser
-                                        published_date = parser.parse(serp_result['date'])
+                                        parsed = parser.parse(serp_result['date'])
+                                        if parsed.tzinfo is None:
+                                            published_date = parsed.replace(tzinfo=timezone.utc)
+                                        else:
+                                            published_date = parsed.astimezone(timezone.utc)
                                     except:
                                         pass
                                 
@@ -1473,8 +1584,9 @@ class UnifiedSERPCollector:
                                         position, url, title, snippet, domain,
                                         source, published_date, video_length, total_results,
                                         device, google_domain, language_code, time_period, 
-                                        news_type, query_displayed, time_taken_displayed
-                                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                                        news_type, query_displayed, time_taken_displayed,
+                                        pipeline_execution_id
+                                    ) VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11::date, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
                                     ON CONFLICT (keyword_id, search_date, location, serp_type, url) 
                                     DO UPDATE SET
                                         position = EXCLUDED.position,
@@ -1490,7 +1602,8 @@ class UnifiedSERPCollector:
                                         time_period = EXCLUDED.time_period,
                                         news_type = EXCLUDED.news_type,
                                         query_displayed = EXCLUDED.query_displayed,
-                                        time_taken_displayed = EXCLUDED.time_taken_displayed
+                                        time_taken_displayed = EXCLUDED.time_taken_displayed,
+                                        pipeline_execution_id = EXCLUDED.pipeline_execution_id
                                     """,
                                     keyword_id,
                                     search_date,
@@ -1511,7 +1624,8 @@ class UnifiedSERPCollector:
                                     time_period,
                                     news_type,
                                     query_displayed,
-                                    time_taken_displayed
+                                    time_taken_displayed,
+                                    pipeline_execution_id
                                 )
                                 
                             except Exception as store_error:

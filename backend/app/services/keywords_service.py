@@ -122,7 +122,8 @@ class KeywordsService:
     async def upload_keywords_from_csv(
         self, 
         file: UploadFile, 
-        regions: List[str]
+        regions: List[str],
+        replace: bool = False
     ) -> Dict[str, Any]:
         """Upload keywords from CSV file with enhanced format support"""
         contents = await file.read()
@@ -183,6 +184,27 @@ class KeywordsService:
                 errors.append(f"Row {row_num}: Error parsing data - {str(e)}")
                 continue
         
+        # If replace mode is enabled, replace keyword set without violating FKs
+        if replace:
+            try:
+                async with db_pool.acquire() as conn:
+                    async with conn.transaction():
+                        # Clear all keyword-country mappings
+                        await conn.execute("DELETE FROM keywords_countries")
+                        # Deactivate all existing keywords to avoid FK violations with historical tables
+                        await conn.execute("UPDATE keywords SET is_active = false")
+                        logger.info("Keyword upload in replace mode: cleared keyword-country mappings and deactivated existing keywords")
+            except Exception as e:
+                logger.error(f"Replace mode clear failed: {e}")
+                return {
+                    'total_keywords': 0,
+                    'keywords_processed': 0,
+                    'metrics_fetched': 0,
+                    'csv_parsing_errors': len(errors),
+                    'database_errors': 1,
+                    'errors': [f"Failed to clear existing keywords: {str(e)}"],
+                }
+
         # Insert keywords with enhanced schema
         keywords_processed = 0
         insert_errors = []
@@ -209,7 +231,8 @@ class KeywordsService:
                     'persona_score': 'persona_score',
                     'seo_score': 'seo_score',
                     'composite_score': 'composite_score',
-                    'avg_monthly_searches': 'avg_monthly_searches'
+                    'avg_monthly_searches': 'avg_monthly_searches',
+                    'is_active': 'is_active'
                 }
                 
                 # Only include columns that exist in the database
@@ -246,7 +269,11 @@ class KeywordsService:
                         
                         for col_name, col_key in optional_columns.items():
                             if col_name in available_columns:
-                                params.append(kw_data.get(col_key))
+                                # Ensure uploaded keywords are marked active in replace mode
+                                if col_name == 'is_active':
+                                    params.append(True if replace else kw_data.get(col_key))
+                                else:
+                                    params.append(kw_data.get(col_key))
                         
                         await conn.execute(insert_query, *params)
                         keywords_processed += 1
@@ -300,7 +327,8 @@ class KeywordsService:
             'metrics_fetched': 0,  # Google Ads metrics not implemented yet
             'csv_parsing_errors': len(errors),
             'database_errors': len(insert_errors),
-            'errors': all_errors
+            'errors': all_errors,
+            'uploaded_keywords': [kw['keyword'] for kw in keywords_data]
         }
     
     async def get_categories(self) -> List[str]:

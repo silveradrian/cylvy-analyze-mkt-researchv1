@@ -13,6 +13,7 @@ import {
   AlertCircle, Settings, Activity, Timer, Pause,
   ChevronRight, RefreshCw, Zap
 } from 'lucide-react';
+import { StartPipelineDialog } from '@/components/pipeline/StartPipelineDialog';
 import { formatDistanceToNow } from 'date-fns';
 
 interface ScheduledRun {
@@ -54,11 +55,13 @@ export default function PipelinePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig | null>(null);
+  const [pipelineStats, setPipelineStats] = useState<{ keywords: number; countries: number; totalSearches: number } | null>(null);
   const [recentExecutions, setRecentExecutions] = useState<PipelineExecution[]>([]);
   const [upcomingRuns, setUpcomingRuns] = useState<ScheduledRun[]>([]);
   const [activeTab, setActiveTab] = useState('timeline');
   const [error, setError] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [showStartDialog, setShowStartDialog] = useState(false);
 
   useEffect(() => {
     loadPipelineData();
@@ -69,12 +72,27 @@ export default function PipelinePage() {
     try {
       setLoading(true);
       const token = localStorage.getItem('access_token');
-      
-      // Load schedule configuration
+
+      // Load unified config first
+      let regions: string[] = []
+      let keywords: string[] = []
+      let contentTypes: string[] = []
+
+      const configResp = await fetch('/api/v1/pipeline/config', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (configResp.ok) {
+        const cfg = await configResp.json()
+        regions = Array.isArray(cfg.regions) ? cfg.regions : []
+        keywords = Array.isArray(cfg.keywords) ? cfg.keywords : []
+        const cs = Array.isArray(cfg.content_schedules) ? cfg.content_schedules : []
+        contentTypes = cs.filter((x: any) => x?.enabled !== false).map((x: any) => x?.content_type).filter(Boolean)
+      }
+
+      // Load schedule configuration (to show upcoming runs and details)
       const scheduleResponse = await fetch('/api/v1/pipeline/schedules', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      
       if (scheduleResponse.ok) {
         const scheduleData = await scheduleResponse.json();
         if (scheduleData.schedules && scheduleData.schedules.length > 0) {
@@ -85,23 +103,34 @@ export default function PipelinePage() {
             video: 'monthly',
             keyword_metrics: 'monthly'
           };
-          
           schedule.content_schedules?.forEach((cs: any) => {
             if (cs.content_type in config) {
               config[cs.content_type as keyof ScheduleConfig] = cs.frequency;
             }
           });
-          
           setScheduleConfig(config);
           calculateUpcomingRuns(config, schedule);
+
+          // If backend config was missing, derive inputs from schedule row
+          if (regions.length === 0) regions = Array.isArray(schedule.regions) ? schedule.regions : []
+          if (keywords.length === 0) {
+            const schedKeywords = Array.isArray(schedule.keywords) ? schedule.keywords : (Array.isArray(schedule.custom_keywords) ? schedule.custom_keywords : [])
+            keywords = schedKeywords
+          }
+          if (contentTypes.length === 0) {
+            contentTypes = Array.isArray(schedule.content_schedules) ? schedule.content_schedules.filter((cs: any) => cs.enabled !== false).map((cs: any) => cs.content_type) : ['organic','news','video']
+          }
         }
       }
-      
+
+      // Compute metrics from current config (not last run)
+      const totalSearches = (keywords.length || 0) * (regions.length || 0) * (contentTypes.length || 0)
+      setPipelineStats({ keywords: keywords.length || 0, countries: regions.length || 0, totalSearches })
+
       // Load recent executions
       const executionsResponse = await fetch('/api/v1/pipeline/recent?limit=10', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      
       if (executionsResponse.ok) {
         const executionsData = await executionsResponse.json();
         setRecentExecutions(executionsData.pipelines || []);
@@ -199,7 +228,7 @@ export default function PipelinePage() {
     }
   };
 
-  const startManualPipeline = async () => {
+  const startManualPipeline = async (pipelineConfig: any) => {
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch('/api/v1/pipeline/start', {
@@ -208,19 +237,19 @@ export default function PipelinePage() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          content_types: ['organic', 'news', 'video'],
-          regions: ['US', 'UK', 'DE', 'SA', 'VN']
-        })
+        body: JSON.stringify(pipelineConfig)
       });
       
       if (response.ok) {
         await loadPipelineData();
         setError(null);
+        setShowStartDialog(false);
       } else {
-        setError('Failed to start pipeline');
+        const errorData = await response.json();
+        setError(errorData.detail || 'Failed to start pipeline');
       }
     } catch (err) {
+      console.error('Pipeline start error:', err);
       setError('Failed to start pipeline');
     }
   };
@@ -298,7 +327,7 @@ export default function PipelinePage() {
               <Settings className="h-4 w-4 mr-2" />
               Configure Schedule
             </Button>
-            <Button onClick={startManualPipeline} variant="outline">
+            <Button onClick={() => setShowStartDialog(true)} variant="outline">
               <PlayCircle className="h-4 w-4 mr-2" />
               Run Now (All Types)
             </Button>
@@ -315,6 +344,30 @@ export default function PipelinePage() {
             </span>
           </div>
         </div>
+
+        {/* Quick Pipeline Stats */}
+        {pipelineStats && (
+          <div className="grid grid-cols-3 gap-4">
+            <Card>
+              <CardContent className="py-4">
+                <div className="text-sm text-gray-500">Keywords</div>
+                <div className="text-2xl font-semibold">{pipelineStats.keywords}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-4">
+                <div className="text-sm text-gray-500">Countries</div>
+                <div className="text-2xl font-semibold">{pipelineStats.countries}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-4">
+                <div className="text-sm text-gray-500">Total Searches</div>
+                <div className="text-2xl font-semibold">{pipelineStats.totalSearches}</div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Error Alert */}
         {error && (
@@ -498,9 +551,9 @@ export default function PipelinePage() {
                         </div>
                         <div className="text-right">
                           <Badge variant={
-                            execution.status === 'completed' ? 'default' : 
+                            execution.status === 'completed' ? 'success' : 
                             execution.status === 'running' ? 'secondary' : 
-                            'destructive'
+                            'error'
                           }>
                             {execution.status}
                           </Badge>
@@ -508,6 +561,35 @@ export default function PipelinePage() {
                             <p className="text-sm text-gray-600 mt-1">
                               {execution.keywords_processed} keywords
                             </p>
+                          )}
+                          {execution.status !== 'completed' && (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="mt-2"
+                              onClick={async () => {
+                                try {
+                                  const token = localStorage.getItem('access_token');
+                                  const res = await fetch(`/api/v1/pipeline/${execution.pipeline_id}/resume`, {
+                                    method: 'POST',
+                                    headers: {
+                                      'Authorization': `Bearer ${token}`,
+                                      'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({})
+                                  });
+                                  if (res.ok) {
+                                    await loadPipelineData();
+                                  } else {
+                                    setError('Failed to resume pipeline');
+                                  }
+                                } catch (e) {
+                                  setError('Failed to resume pipeline');
+                                }
+                              }}
+                            >
+                              <PlayCircle className="h-4 w-4 mr-2" /> Resume
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -539,6 +621,13 @@ export default function PipelinePage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Start Pipeline Dialog */}
+      <StartPipelineDialog
+        open={showStartDialog}
+        onClose={() => setShowStartDialog(false)}
+        onStart={startManualPipeline}
+      />
     </AdminLayout>
   );
 }

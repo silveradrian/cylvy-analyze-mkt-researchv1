@@ -9,6 +9,7 @@ import {
   BarChart3, 
   Target, 
   Users,
+  Building,
   LogOut,
   Menu,
   X,
@@ -33,11 +34,11 @@ const navigationItems = [
     icon: Home,
     description: 'Overview and setup status'
   },
-  // Configuration Section
+  // Setup Configuration Section - matching dashboard order
   { 
     name: 'Company Profile', 
     href: '/setup?step=company', 
-    icon: Settings,
+    icon: Building,
     description: 'Company configuration'
   },
   { 
@@ -47,16 +48,34 @@ const navigationItems = [
     description: 'Target audience profiles'
   },
   { 
-    name: 'Keywords', 
+    name: 'Keywords Configuration', 
     href: '/setup?step=countries', 
     icon: Target,
     description: 'Countries & Keywords'
   },
   { 
-    name: 'Analysis Settings', 
-    href: '/setup?step=analysis', 
+    name: 'Custom Dimensions', 
+    href: '/dimensions', 
+    icon: Layers,
+    description: 'Optional analysis dimensions'
+  },
+  { 
+    name: 'Default Dimensions', 
+    href: '/settings', 
     icon: Settings,
-    description: 'Configure analysis'
+    description: 'JTBD & Page Types'
+  },
+  { 
+    name: 'Digital Landscapes', 
+    href: '/landscapes', 
+    icon: Globe,
+    description: 'Keyword groupings'
+  },
+  { 
+    name: 'Pipeline Schedule', 
+    href: '/pipeline-schedules', 
+    icon: Calendar,
+    description: 'Configure automation'
   },
   // Operations Section
   { 
@@ -64,24 +83,6 @@ const navigationItems = [
     href: '/pipeline', 
     icon: BarChart3,
     description: 'Run and monitor analysis'
-  },
-  { 
-    name: 'Pipeline Schedules', 
-    href: '/pipeline-schedules', 
-    icon: Calendar,
-    description: 'Configure schedules'
-  },
-  { 
-    name: 'Digital Landscapes', 
-    href: '/landscapes', 
-    icon: Globe,
-    description: 'DSI market views'
-  },
-  { 
-    name: 'Custom Dimensions', 
-    href: '/dimensions', 
-    icon: Layers,
-    description: 'Analysis dimensions'
   },
   { 
     name: 'Monitoring', 

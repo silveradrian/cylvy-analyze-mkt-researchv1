@@ -59,6 +59,16 @@ class JTBDPhase(BaseModel):
     buyer_mindset: str = Field("", description="Buyer's mindset in this phase")
 
 
+class PageType(BaseModel):
+    """B2B Page Type definition"""
+    id: str = Field(..., description="Unique page type identifier")
+    name: str = Field(..., description="Page type name")
+    category: str = Field(..., description="Page category grouping")
+    description: str = Field(..., description="Page type description")
+    indicators: List[str] = Field(default_factory=list, description="Key indicators of this page type")
+    buyer_journey_stage: str = Field(..., description="Primary buyer journey stage alignment")
+
+
 class Mention(BaseModel):
     """Entity mention in content"""
     entity: str = Field(..., description="Entity name/domain mentioned")
@@ -97,6 +107,7 @@ class AnalysisConfig(BaseModel):
     """Analysis configuration for a client"""
     personas: List[Persona] = Field(default_factory=list, description="Target personas")
     jtbd_phases: List[JTBDPhase] = Field(default_factory=list, description="Jobs to be Done phases")
+    page_types: List[PageType] = Field(default_factory=list, description="B2B page type definitions")
     competitor_domains: List[str] = Field(default_factory=list, description="Competitor domains to track")
     custom_dimensions: Dict[str, List[str]] = Field(
         default_factory=dict,

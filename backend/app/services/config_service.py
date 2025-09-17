@@ -25,7 +25,6 @@ class ConfigService:
             data = dict(row)
             # Parse JSONB fields if they're strings
             if isinstance(data.get('competitors'), str):
-                import json
                 data['competitors'] = json.loads(data['competitors'])
             
             return ClientConfig(**data)
@@ -89,7 +88,12 @@ class ConfigService:
                 values.append(existing)
                 result = await conn.fetchrow(query, *values)
             
-            return ClientConfig(**dict(result))
+            # Parse JSONB fields
+            result_dict = dict(result)
+            if 'competitors' in result_dict and isinstance(result_dict['competitors'], str):
+                result_dict['competitors'] = json.loads(result_dict['competitors'])
+            
+            return ClientConfig(**result_dict)
     
     async def get_analysis_config(self) -> AnalysisConfig:
         """Get analysis configuration"""

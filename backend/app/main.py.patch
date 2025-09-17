@@ -1,0 +1,14 @@
+--- Add pipeline monitor to main.py ---
+
+# Add this import at the top
+from app.services.robustness.pipeline_monitor import pipeline_monitor
+
+# Add this in the lifespan function after database initialization:
+    # Start pipeline monitor
+    logger.info("Starting pipeline health monitor...")
+    await pipeline_monitor.start_monitoring()
+    
+# Add this in the shutdown section:
+    # Stop pipeline monitor
+    logger.info("Stopping pipeline monitor...")
+    await pipeline_monitor.stop_monitoring()

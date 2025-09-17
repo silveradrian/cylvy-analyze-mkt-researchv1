@@ -300,8 +300,8 @@ class HistoricalDataService:
                     AVG(page_dsi_score) as avg_dsi_score,
                     COUNT(DISTINCT snapshot_date) as total_days_active,
                     CASE 
-                        WHEN MAX(snapshot_date) >= $1 - INTERVAL '30 days' THEN 'active'
-                        WHEN MAX(snapshot_date) >= $1 - INTERVAL '90 days' THEN 'declining'  
+                        WHEN MAX(snapshot_date) >= $1::date - INTERVAL '30 days' THEN 'active'
+                        WHEN MAX(snapshot_date) >= $1::date - INTERVAL '90 days' THEN 'declining'  
                         ELSE 'disappeared'
                     END as lifecycle_status
                 FROM historical_page_dsi_snapshots
@@ -460,12 +460,12 @@ class HistoricalDataService:
         async with db_pool.acquire() as conn:
             return await conn.fetch("""
                 SELECT * FROM page_dsi_month_over_month 
-                WHERE snapshot_date >= CURRENT_DATE - INTERVAL '%s months'
+                WHERE snapshot_date >= (CURRENT_DATE - ($1::int || ' months')::interval)
                 AND ($2::text IS NULL OR domain = $2)
                 AND ($3::text IS NULL OR content_classification = $3)
                 ORDER BY dsi_change_percent DESC NULLS LAST
                 LIMIT $4
-            """ % months, domain, content_type, limit)
+            """, months, domain, content_type, limit)
     
     async def get_page_lifecycle_data(
         self, 
@@ -491,7 +491,7 @@ class HistoricalDataService:
             return await conn.fetch("""
                 WITH recent_snapshots AS (
                     SELECT * FROM historical_page_dsi_snapshots
-                    WHERE snapshot_date >= CURRENT_DATE - INTERVAL '%s days'
+                    WHERE snapshot_date >= (CURRENT_DATE - ($1::int || ' days')::interval)
                 ),
                 trending AS (
                     SELECT 
@@ -509,7 +509,7 @@ class HistoricalDataService:
                 SELECT * FROM trending
                 ORDER BY dsi_improvement DESC
                 LIMIT 20
-            """ % days)
+            """, days)
     
     async def schedule_monthly_snapshots(self):
         """Schedule automatic monthly snapshot creation"""

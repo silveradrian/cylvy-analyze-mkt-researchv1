@@ -32,7 +32,7 @@ class PipelineStartRequest(BaseModel):
     """Request to start a pipeline"""
     client_id: Optional[str] = Field(None, description="Client ID for data isolation (defaults to authenticated user)")
     keywords: Optional[List[str]] = Field(None, description="Specific keywords to process (null = all)")
-    regions: List[str] = Field(["US", "UK"], description="Regions to collect data for")
+    regions: Optional[List[str]] = Field(None, description="Regions to collect data for (null = use schedule config)")
     content_types: List[str] = Field(["organic", "news", "video"], description="Content types to collect")
     
     # Execution settings
@@ -56,6 +56,9 @@ class PipelineStartRequest(BaseModel):
     
     # Mode
     mode: PipelineMode = PipelineMode.MANUAL
+    
+    # SERP reuse option
+    reuse_serp_from_pipeline_id: Optional[str] = Field(None, description="UUID of previous pipeline to reuse SERP results from")
 
 
 class PipelineStatusResponse(BaseModel):
@@ -161,11 +164,33 @@ async def start_pipeline(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        # Idempotency guard: if a pipeline started very recently and is running, return it
+        try:
+            async with db_pool.acquire() as conn:
+                existing = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM pipeline_executions
+                    WHERE status = 'running'
+                      AND started_at >= NOW() - INTERVAL '15 seconds'
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                    """
+                )
+                if existing and existing.get('id'):
+                    return {
+                        "pipeline_id": str(existing['id']),
+                        "message": "Pipeline already running (recent start); returning existing execution.",
+                        "status": "running"
+                    }
+        except Exception:
+            pass
+
         # Get active schedule to use its configuration
         async with db_pool.acquire() as conn:
             schedule_data = await conn.fetchrow(
                 """
-                SELECT id, content_schedules, regions
+                SELECT id, content_schedules, regions, custom_keywords
                 FROM pipeline_schedules 
                 WHERE is_active = true
                 LIMIT 1
@@ -173,9 +198,49 @@ async def start_pipeline(
             )
         
         # Create pipeline config
+        # Prefer explicit request keywords; otherwise use active schedule custom_keywords if available
+        schedule_keywords = None
+        if schedule_data and schedule_data.get('custom_keywords'):
+            try:
+                import json as _json
+                raw = _json.loads(schedule_data['custom_keywords']) if isinstance(schedule_data['custom_keywords'], str) else schedule_data['custom_keywords']
+                # Normalize to list[str]
+                if isinstance(raw, list):
+                    schedule_keywords = []
+                    for k in raw:
+                        if isinstance(k, dict) and k.get('keyword'):
+                            schedule_keywords.append(str(k['keyword']))
+                        elif isinstance(k, str):
+                            schedule_keywords.append(k)
+            except Exception:
+                schedule_keywords = None
+
+        # Prefer explicit request regions; otherwise use active schedule regions if available
+        schedule_regions = None
+        if schedule_data and schedule_data.get('regions'):
+            schedule_regions = schedule_data['regions']
+            logger.info(f"Schedule has regions configured: {schedule_regions}")
+
+        # Use request regions if provided, otherwise fall back to schedule regions
+        regions_to_use = request.regions if request.regions is not None else schedule_regions
+        if not regions_to_use:
+            # Final fallback if no regions configured anywhere
+            regions_to_use = ["US", "UK"]
+            logger.warning("No regions configured in request or schedule, using default: ['US', 'UK']")
+        
+        logger.info(f"Pipeline will use regions: {regions_to_use}")
+
+        # Parse reuse_serp_from_pipeline_id if provided
+        reuse_serp_uuid = None
+        if request.reuse_serp_from_pipeline_id:
+            try:
+                reuse_serp_uuid = UUID(request.reuse_serp_from_pipeline_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid pipeline UUID format for SERP reuse")
+
         config = PipelineConfig(
-            keywords=request.keywords,
-            regions=request.regions,
+            keywords=request.keywords or schedule_keywords,
+            regions=regions_to_use,
             content_types=request.content_types,
             max_concurrent_serp=request.max_concurrent_serp,
             max_concurrent_enrichment=request.max_concurrent_enrichment,
@@ -185,7 +250,8 @@ async def start_pipeline(
             enable_content_analysis=request.enable_content_analysis,
             enable_historical_tracking=request.enable_historical_tracking,
             force_refresh=request.force_refresh,
-            schedule_id=schedule_data['id'] if schedule_data else None
+            schedule_id=schedule_data['id'] if schedule_data else None,
+            reuse_serp_from_pipeline_id=reuse_serp_uuid
         )
         
         # Start pipeline
@@ -199,6 +265,45 @@ async def start_pipeline(
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start pipeline: {str(e)}")
+
+
+class PipelineResumeRequest(BaseModel):
+    """Request to resume a pipeline"""
+    keywords: Optional[List[str]] = None
+    regions: Optional[List[str]] = None
+    content_types: Optional[List[str]] = None
+
+
+@router.post("/{pipeline_id}/resume", response_model=dict)
+async def resume_pipeline(
+    pipeline_id: UUID,
+    request: PipelineResumeRequest,
+    current_user: User = Depends(get_current_user),
+    pipeline_svc: PipelineService = Depends(get_pipeline_service)
+):
+    """Resume an existing pipeline execution from where it left off."""
+    if current_user.role not in ["analyst", "admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    # Build a minimal config override if provided
+    config = None
+    if any([request.keywords, request.regions, request.content_types]):
+        config = PipelineConfig(
+            keywords=request.keywords,
+            regions=request.regions or ["US", "UK"],
+            content_types=request.content_types or ["organic", "news", "video"],
+        )
+
+    try:
+        ok = await pipeline_svc.resume_pipeline(pipeline_id, config)
+        if not ok:
+            raise HTTPException(status_code=500, detail="Failed to resume pipeline")
+        return {"pipeline_id": str(pipeline_id), "resumed": True}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        logger.exception("Failed to resume pipeline")
+        raise HTTPException(status_code=500, detail=f"Failed to resume pipeline: {e}")
 
 
 @router.get("/status/{pipeline_id}", response_model=PipelineStatusResponse)
@@ -270,6 +375,67 @@ async def cancel_pipeline(
         raise HTTPException(status_code=404, detail="Pipeline not found or cannot be cancelled")
     
     return {"message": "Pipeline cancelled successfully"}
+
+
+@router.post("/cache/purge-keywords")
+async def purge_keyword_cache(
+    current_user: User = Depends(get_current_user)
+):
+    """Purge all keyword metrics from cache"""
+    try:
+        from app.services.keywords.dataforseo_service import DataForSEOService
+        
+        service = DataForSEOService()
+        await service.initialize()
+        purged_count = await service.purge_keyword_metrics_cache()
+        await service.close()
+        
+        return {
+            "success": True,
+            "message": f"Purged {purged_count} keyword metrics from cache"
+        }
+    except Exception as e:
+        logger.error(f"Failed to purge keyword cache: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to purge cache: {str(e)}")
+
+
+@router.post("/{pipeline_id}/fail")
+async def mark_pipeline_failed(
+    pipeline_id: UUID,
+    current_user: User = Depends(get_current_user)
+):
+    """Manually mark a pipeline as failed and close it out."""
+    if current_user.role not in ["analyst", "admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    try:
+        async with db_pool.acquire() as conn:
+            # Update pipeline execution status and completion time
+            updated = await conn.execute(
+                """
+                UPDATE pipeline_executions
+                SET status = 'failed', completed_at = NOW()
+                WHERE id = $1 AND status <> 'completed'
+                """,
+                pipeline_id
+            )
+
+            # Also mark any running/pending/blocked phases as failed for consistency
+            await conn.execute(
+                """
+                UPDATE pipeline_phase_status
+                SET status = 'failed', updated_at = NOW(), completed_at = NOW(),
+                    result_data = COALESCE(result_data, '{}'::jsonb) || '{"manual_fail": true}'::jsonb
+                WHERE pipeline_execution_id = $1 AND status IN ('running','pending','blocked')
+                """,
+                pipeline_id
+            )
+
+        logger.info(f"Manually marked pipeline {pipeline_id} as failed")
+        return {"pipeline_id": str(pipeline_id), "status": "failed"}
+    except Exception as e:
+        logger.exception("Failed to mark pipeline as failed")
+        raise HTTPException(status_code=500, detail=f"Failed to mark pipeline as failed: {e}")
 
 
 @router.get("/recent")
@@ -355,6 +521,8 @@ async def get_schedules(
                 "description": s.description,
                 "is_active": s.is_active,
                 "content_schedules": [cs.dict() for cs in s.content_schedules],
+                "regions": s.regions,
+                "keywords": s.keywords,
                 "next_execution_at": s.next_execution_at,
                 "last_executed_at": s.last_executed_at
             }
@@ -379,10 +547,10 @@ async def update_schedule(
         return {
             "message": "Schedule updated successfully",
             "schedule": {
-                "id": updated_schedule.id,
+                "id": str(updated_schedule.id),
                 "name": updated_schedule.name,
                 "is_active": updated_schedule.is_active,
-                "next_execution_at": updated_schedule.next_execution_at
+                "next_execution_at": updated_schedule.next_execution_at.isoformat() if updated_schedule.next_execution_at else None
             }
         }
     
@@ -587,4 +755,134 @@ async def get_trending_content(
     """Get trending content based on DSI improvements"""
     trending = await historical_svc.get_trending_content(days)
     return {"trending_content": [dict(content) for content in trending]}
+
+
+@router.get("/config")
+async def get_pipeline_config(
+    current_user: User = Depends(get_current_user),
+):
+    """Return the current active pipeline configuration (keywords, regions, content_schedules)."""
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, content_schedules, regions, custom_keywords, is_active
+            FROM pipeline_schedules
+            WHERE is_active = TRUE
+            ORDER BY updated_at DESC NULLS LAST, created_at DESC
+            LIMIT 1
+            """
+        )
+    if not row:
+        return {
+            "id": None,
+            "is_active": False,
+            "content_schedules": [],
+            "regions": ["US", "UK"],
+            "keywords": []
+        }
+
+    # Parse JSON/arrays
+    import json as _json
+    content_schedules = row["content_schedules"]
+    if isinstance(content_schedules, str):
+        try:
+            content_schedules = _json.loads(content_schedules)
+        except Exception:
+            content_schedules = []
+    custom_keywords = row["custom_keywords"]
+    keywords = []
+    if custom_keywords:
+        try:
+            raw = _json.loads(custom_keywords) if isinstance(custom_keywords, str) else custom_keywords
+            # Normalize to list[str]
+            if isinstance(raw, list):
+                for k in raw:
+                    if isinstance(k, dict) and k.get("keyword"):
+                        keywords.append(str(k["keyword"]))
+                    elif isinstance(k, str):
+                        keywords.append(k)
+        except Exception:
+            keywords = []
+
+    return {
+        "id": str(row["id"]),
+        "is_active": row["is_active"],
+        "content_schedules": content_schedules or [],
+        "regions": row["regions"] or ["US", "UK"],
+        "keywords": keywords or []
+    }
+
+
+class PipelineConfigUpdate(BaseModel):
+    content_schedules: Optional[List[dict]] = None
+    regions: Optional[List[str]] = None
+    keywords: Optional[List[str]] = None
+    is_active: Optional[bool] = True
+
+
+@router.put("/config")
+async def update_pipeline_config(
+    request: PipelineConfigUpdate,
+    current_user: User = Depends(get_current_user),
+    scheduling_svc: SchedulingService = Depends(get_scheduling_service)
+):
+    """Update and activate the pipeline configuration. This persists and takes effect immediately."""
+    if current_user.role not in ["admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    # Find existing active schedule or create one
+    async with db_pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            """
+            SELECT id FROM pipeline_schedules
+            WHERE is_active = TRUE
+            ORDER BY updated_at DESC NULLS LAST, created_at DESC
+            LIMIT 1
+            """
+        )
+
+    # Build updates payload for SchedulingService
+    updates: dict = {}
+    if request.content_schedules is not None:
+        updates["content_schedules"] = request.content_schedules
+    if request.regions is not None:
+        updates["regions"] = request.regions
+    if request.keywords is not None:
+        updates["keywords"] = request.keywords
+    if request.is_active is not None:
+        updates["is_active"] = bool(request.is_active)
+
+    # Ensure only one active schedule: deactivate others if we are activating
+    async with db_pool.acquire() as conn:
+        if updates.get("is_active", True):
+            await conn.execute("UPDATE pipeline_schedules SET is_active = FALSE WHERE is_active = TRUE")
+
+    if existing:
+        # Update the existing schedule
+        schedule = await scheduling_svc.update_schedule(existing["id"], updates)
+        schedule_id = schedule.id
+    else:
+        # Create a new schedule with defaults then update
+        from app.services.scheduling_service import PipelineSchedule, ContentTypeSchedule, ScheduleFrequency
+        default_cs = [
+            ContentTypeSchedule(content_type="organic", enabled=True, frequency=ScheduleFrequency.MONTHLY),
+            ContentTypeSchedule(content_type="news", enabled=True, frequency=ScheduleFrequency.WEEKLY),
+            ContentTypeSchedule(content_type="video", enabled=True, frequency=ScheduleFrequency.MONTHLY),
+        ]
+        new_schedule = PipelineSchedule(
+            name="Active Project Config",
+            description="Primary active pipeline configuration",
+            is_active=True,
+            content_schedules=default_cs,
+            keywords=request.keywords or [],
+            regions=request.regions or ["US", "UK"],
+        )
+        schedule_id = await scheduling_svc.create_schedule(new_schedule)
+        if updates:
+            await scheduling_svc.update_schedule(schedule_id, updates)
+
+    # Return current config
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM pipeline_schedules WHERE id = $1", schedule_id)
+    return {"id": str(row["id"]), "message": "Configuration saved and activated"}
 
