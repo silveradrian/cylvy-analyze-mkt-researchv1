@@ -534,6 +534,320 @@ class SimplifiedDSICalculator:
         results = await self.db.fetch(query, pipeline_id, serp_type)
         return [dict(row) for row in results]
     
+    async def calculate_landscape_page_dsi(self, landscape_id: str, landscape_name: str) -> List[Dict[str, Any]]:
+        """Calculate page-level DSI for a specific digital landscape using its keyword criteria"""
+        try:
+            # Get landscape keywords
+            async with self.db.acquire() as conn:
+                landscape_keywords = await conn.fetch("""
+                    SELECT k.id, k.keyword
+                    FROM landscape_keywords lk
+                    JOIN keywords k ON lk.keyword_id = k.id
+                    WHERE lk.landscape_id = $1
+                """, landscape_id)
+                
+                if not landscape_keywords:
+                    logger.warning(f"No keywords found for landscape {landscape_name}")
+                    return []
+                
+                keyword_ids = [str(kw['id']) for kw in landscape_keywords]
+                logger.info(f"Calculating page DSI for landscape '{landscape_name}' with {len(keyword_ids)} keywords")
+                
+                # Landscape-specific page DSI query (based on _calculate_page_dsi but filtered by landscape keywords)
+                query = """
+                    WITH page_serp_data AS (
+                        SELECT 
+                            sr.url,
+                            sr.title,
+                            sr.domain,
+                            sr.keyword_id,
+                            sr.position,
+                            k.keyword as keyword_text,
+                            k.avg_monthly_searches,
+                            -- Industry-standard CTR curve for traffic estimation
+                            COALESCE(k.avg_monthly_searches, 1000) * CASE 
+                                WHEN sr.position = 1 THEN 0.2823
+                                WHEN sr.position = 2 THEN 0.1572
+                                WHEN sr.position = 3 THEN 0.1073
+                                WHEN sr.position = 4 THEN 0.0775
+                                WHEN sr.position = 5 THEN 0.0588
+                                WHEN sr.position = 6 THEN 0.0459
+                                WHEN sr.position = 7 THEN 0.0369
+                                WHEN sr.position = 8 THEN 0.0302
+                                WHEN sr.position = 9 THEN 0.0252
+                                WHEN sr.position = 10 THEN 0.0214
+                                WHEN sr.position <= 20 THEN 0.0150
+                                ELSE 0.0050
+                            END as estimated_traffic
+                        FROM serp_results sr
+                        LEFT JOIN keywords k ON k.id = sr.keyword_id
+                        WHERE sr.serp_type IN ('organic', 'news')  -- Focus on content pages
+                            AND sr.keyword_id = ANY($1::uuid[])  -- Filter by landscape keywords
+                            AND sr.search_date >= CURRENT_DATE - INTERVAL '30 days'
+                    ),
+                    page_metrics AS (
+                        SELECT 
+                            url,
+                            MAX(title) as title,
+                            MAX(domain) as domain,
+                            COUNT(DISTINCT keyword_id) as keyword_count,
+                            AVG(position) as avg_position,
+                            MIN(position) as best_position,
+                            SUM(estimated_traffic) as total_estimated_traffic,
+                            COUNT(CASE WHEN position = 1 THEN 1 END) as position_1_count,
+                            COUNT(CASE WHEN position <= 3 THEN 1 END) as top_3_count,
+                            COUNT(CASE WHEN position <= 10 THEN 1 END) as top_10_count,
+                            ARRAY_AGG(keyword_text ORDER BY position) as ranking_keywords
+                        FROM page_serp_data
+                        GROUP BY url
+                    ),
+                    content_analysis AS (
+                        SELECT 
+                            oca.url,
+                            oca.overall_insights,
+                            oca.overall_sentiment,
+                            oca.key_topics,
+                            oca.mentions,
+                            COALESCE(
+                                (SELECT AVG(CAST(oda.score AS FLOAT))
+                                 FROM optimized_dimension_analysis oda 
+                                 WHERE oda.analysis_id = oca.id 
+                                 AND oda.dimension_type = 'persona'
+                                ), 5.0
+                            ) as persona_score,
+                            COALESCE(
+                                (SELECT AVG(CAST(oda.score AS FLOAT))
+                                 FROM optimized_dimension_analysis oda 
+                                 WHERE oda.analysis_id = oca.id 
+                                 AND oda.dimension_type = 'strategic_imperative'
+                                ), 5.0
+                            ) as strategic_imperative_score,
+                            COALESCE(
+                                (SELECT AVG(CAST(oda.score AS FLOAT))
+                                 FROM optimized_dimension_analysis oda 
+                                 WHERE oda.analysis_id = oca.id 
+                                 AND oda.dimension_type = 'jtbd_phase'
+                                ), 5.0
+                            ) as jtbd_score,
+                            CASE 
+                                WHEN oca.mentions IS NOT NULL AND jsonb_array_length(oca.mentions) > 0
+                                THEN jsonb_array_length(oca.mentions)
+                                ELSE 0
+                            END as mention_count,
+                            COALESCE(
+                                (SELECT COUNT(*)
+                                 FROM jsonb_array_elements(oca.mentions) as mention
+                                 WHERE mention->>'type' = 'brand'
+                                ), 0
+                            ) as brand_mention_count,
+                            COALESCE(
+                                (SELECT COUNT(*)
+                                 FROM jsonb_array_elements(oca.mentions) as mention
+                                 WHERE mention->>'type' = 'competitor'
+                                ), 0
+                            ) as competitor_mention_count,
+                            CASE 
+                                WHEN oca.key_topics IS NOT NULL AND jsonb_typeof(oca.key_topics) = 'array'
+                                THEN array_to_string(ARRAY(SELECT jsonb_array_elements_text(oca.key_topics)), ', ')
+                                ELSE ''
+                            END as key_topics_str
+                        FROM optimized_content_analysis oca
+                        WHERE oca.project_id IS NULL
+                    ),
+                    market_totals AS (
+                        SELECT 
+                            COUNT(DISTINCT keyword_id) as total_keywords,
+                            SUM(estimated_traffic) as total_market_traffic
+                        FROM page_serp_data
+                    )
+                    SELECT 
+                        pm.url,
+                        pm.title,
+                        pm.domain,
+                        pm.keyword_count,
+                        pm.avg_position,
+                        pm.best_position,
+                        pm.position_1_count,
+                        pm.top_3_count,
+                        pm.top_10_count,
+                        pm.total_estimated_traffic,
+                        pm.ranking_keywords[1:5] as top_keywords,
+                        COALESCE(ca.overall_insights, '') as overall_insights,
+                        COALESCE(ca.overall_sentiment, 'neutral') as overall_sentiment,
+                        COALESCE(ca.key_topics_str, '') as key_topics_str,
+                        ROUND(COALESCE(ca.persona_score, 5.0)::numeric, 2) as persona_score,
+                        ROUND(COALESCE(ca.strategic_imperative_score, 5.0)::numeric, 2) as strategic_imperative_score,
+                        ROUND(COALESCE(ca.jtbd_score, 5.0)::numeric, 2) as jtbd_score,
+                        COALESCE(ca.mention_count, 0) as mention_count,
+                        COALESCE(ca.brand_mention_count, 0) as brand_mention_count,
+                        COALESCE(ca.competitor_mention_count, 0) as competitor_mention_count,
+                        COALESCE(ca.mentions, '[]'::jsonb) as mentions,
+                        -- DSI COMPONENTS (ratios and percents)
+                        ROUND(
+                            (pm.keyword_count::float / mt.total_keywords * 100)::numeric, 
+                            2
+                        ) as keyword_coverage_pct,
+                        ROUND(
+                            (pm.total_estimated_traffic / NULLIF(mt.total_market_traffic, 0) * 100)::numeric,
+                            4
+                        ) as traffic_share_pct,
+                        ROUND(COALESCE(ca.persona_score, 5.0)::numeric, 2) as persona_relevance,
+                        -- PAGE DSI: traffic_share_pct × persona_ratio (0–100 scale)
+                        ROUND(
+                            (
+                                (pm.total_estimated_traffic / NULLIF(mt.total_market_traffic, 0) * 100.0) *
+                                (COALESCE(ca.persona_score, 5.0) / 10.0)
+                            )::numeric,
+                            6
+                        ) as dsi_score
+                    FROM page_metrics pm
+                    LEFT JOIN content_analysis ca ON ca.url = pm.url
+                    CROSS JOIN market_totals mt
+                    WHERE pm.keyword_count > 0
+                    ORDER BY dsi_score DESC, pm.keyword_count DESC
+                """
+                
+                results = await conn.fetch(query, keyword_ids)
+                return [dict(row) for row in results]
+                
+        except Exception as e:
+            logger.error(f"Failed to calculate landscape page DSI for {landscape_name}: {e}")
+            return []
+    
+    async def store_landscape_page_dsi_snapshots(self, landscape_id: str, landscape_name: str, page_dsi: List[Dict]) -> int:
+        """Store landscape-specific page DSI snapshots"""
+        if not page_dsi:
+            return 0
+            
+        try:
+            async with self.db.acquire() as conn:
+                stored_count = 0
+                for rank, page in enumerate(page_dsi, 1):
+                    # Get company name from domain
+                    company_name = None
+                    async with self.db.acquire() as conn2:
+                        company_result = await conn2.fetchrow("""
+                            SELECT company_name FROM company_profiles 
+                            WHERE domain = $1 OR domain = $2
+                            LIMIT 1
+                        """, page['domain'], page['domain'].replace('www.', '') if page['domain'].startswith('www.') else f"www.{page['domain']}")
+                        company_name = company_result['company_name'] if company_result else page['domain']
+                    
+                    # Generate UUID from URL for consistent entity_id
+                    import hashlib
+                    url_hash = hashlib.md5(page['url'].encode()).hexdigest()
+                    page_entity_id = f"{url_hash[:8]}-{url_hash[8:12]}-{url_hash[12:16]}-{url_hash[16:20]}-{url_hash[20:32]}"
+                    
+                    await conn.execute("""
+                        INSERT INTO landscape_dsi_metrics (
+                            landscape_id, calculation_date, entity_type, entity_id, entity_name,
+                            entity_domain, entity_url, unique_keywords, unique_pages,
+                            keyword_coverage, estimated_traffic, traffic_share, persona_alignment,
+                            funnel_value, dsi_score, rank_in_landscape, total_entities_in_landscape,
+                            market_position
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                        ON CONFLICT (landscape_id, calculation_date, entity_type, entity_id)
+                        DO UPDATE SET 
+                            unique_keywords = EXCLUDED.unique_keywords,
+                            estimated_traffic = EXCLUDED.estimated_traffic,
+                            traffic_share = EXCLUDED.traffic_share,
+                            persona_alignment = EXCLUDED.persona_alignment,
+                            dsi_score = EXCLUDED.dsi_score,
+                            rank_in_landscape = EXCLUDED.rank_in_landscape,
+                            created_at = NOW()
+                    """,
+                        landscape_id, datetime.now().date(), 'page', 
+                        page_entity_id,  # Use generated UUID
+                        page['title'][:255] if page['title'] else '',
+                        page['domain'], page['url'],
+                        page['keyword_count'], 1,  # unique_pages = 1 for individual page
+                        float(page['keyword_coverage_pct']) / 100.0,  # Convert to 0-1 scale
+                        int(page['total_estimated_traffic']),
+                        float(page['traffic_share_pct']) / 100.0,  # Convert to 0-1 scale  
+                        float(page['persona_relevance']) / 10.0,  # Convert to 0-1 scale
+                        0.5,  # funnel_value - could be derived from content analysis
+                        page['dsi_score'],
+                        rank, len(page_dsi),  # rank and total in this landscape
+                        'leader' if rank <= 10 else 'challenger' if rank <= 50 else 'competitor' if rank <= 200 else 'niche'
+                    )
+                    stored_count += 1
+                
+                logger.info(f"Stored {stored_count} landscape page DSI snapshots for {landscape_name}")
+                return stored_count
+                
+        except Exception as e:
+            logger.error(f"Failed to store landscape page DSI for {landscape_name}: {e}")
+            return 0
+    
+    async def calculate_all_landscape_page_dsi(self) -> Dict[str, Any]:
+        """Calculate page-level DSI for all 24 digital landscapes"""
+        try:
+            # Get all active landscapes
+            async with self.db.acquire() as conn:
+                landscapes = await conn.fetch("""
+                    SELECT id, name 
+                    FROM digital_landscapes 
+                    WHERE is_active = true
+                    ORDER BY name
+                """)
+            
+            total_landscapes = len(landscapes)
+            total_pages_calculated = 0
+            landscape_results = {}
+            errors = []
+            
+            logger.info(f"Calculating page-level DSI for {total_landscapes} digital landscapes")
+            
+            for i, landscape in enumerate(landscapes, 1):
+                landscape_id = str(landscape['id'])
+                landscape_name = landscape['name']
+                
+                try:
+                    logger.info(f"[{i}/{total_landscapes}] Calculating page DSI for: {landscape_name}")
+                    
+                    # Calculate landscape-specific page DSI
+                    page_dsi = await self.calculate_landscape_page_dsi(landscape_id, landscape_name)
+                    
+                    # Store the results
+                    pages_stored = await self.store_landscape_page_dsi_snapshots(
+                        landscape_id, landscape_name, page_dsi
+                    )
+                    
+                    landscape_results[landscape_name] = {
+                        'pages_calculated': len(page_dsi),
+                        'pages_stored': pages_stored,
+                        'top_page_dsi': page_dsi[0]['dsi_score'] if page_dsi else 0
+                    }
+                    
+                    total_pages_calculated += len(page_dsi)
+                    
+                    logger.info(f"  ✅ {landscape_name}: {len(page_dsi)} pages, top DSI: {page_dsi[0]['dsi_score'] if page_dsi else 0:.3f}")
+                    
+                except Exception as e:
+                    error_msg = f"Failed to calculate page DSI for landscape '{landscape_name}': {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
+            
+            return {
+                'success': True,
+                'total_landscapes': total_landscapes,
+                'landscapes_calculated': len(landscape_results),
+                'total_pages_calculated': total_pages_calculated,
+                'landscape_results': landscape_results,
+                'errors': errors,
+                'success_rate': len(landscape_results) / total_landscapes if total_landscapes > 0 else 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate landscape page DSI: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'total_landscapes': 0,
+                'landscapes_calculated': 0,
+                'total_pages_calculated': 0
+            }
+    
     async def _calculate_news_dsi(self) -> List[Dict[str, Any]]:
         """Calculate news DSI using SERP appearances × keyword coverage × persona alignment"""
         pipeline_filter = ""
